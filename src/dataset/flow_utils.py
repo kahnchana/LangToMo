@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot as plt
 
 
 class FlowNormalizer:
@@ -46,6 +47,35 @@ class FlowNormalizer:
         # Unnormalize channel 1 (width)
         flow[..., 1] = (normalized_flow[..., 1] * 2 * self.width) - self.width
         return flow
+
+
+def visualize_flow_vectors(image, flow, step=16, save_path=None, title="Optical Flow Vectors"):
+    """
+    Overlay optical flow vectors on an image.
+
+    Parameters:
+        image (numpy.ndarray): Input image (H, W, 3).
+        flow (numpy.ndarray): Optical flow array (H, W, 2).
+        step (int): Sampling step for displaying flow vectors.
+
+    Returns:
+        None (displays the visualization).
+    """
+    h, w = flow.shape[:2]
+    y, x = np.mgrid[step // 2 : h : step, step // 2 : w : step].astype(np.int32)
+    fx, fy = flow[x, y].T
+
+    # Overlay flow vectors
+    plt.figure(figsize=(10, 10))
+    plt.imshow(image)
+    plt.quiver(x, y, fx, fy, color="red", angles="xy", scale_units="xy", scale=1, width=0.002)
+    plt.title(title)
+    plt.axis("off")
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+    else:
+        plt.show()
 
 
 # Example usage

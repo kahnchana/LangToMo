@@ -6,7 +6,7 @@ import torch
 import tqdm
 from torchvision.models.optical_flow import Raft_Large_Weights, raft_large
 
-from src.dataset import calvin
+from src.dataset import calvin, flow_utils
 
 
 def get_optical_flow(vid_frames, model, transforms, device, samples=8):
@@ -33,7 +33,8 @@ if __name__ == "__main__":
     # Configs for CALVIN dataset, GPU device, and save path.
     ROOT_DIR = "/home/kanchana/repo/calvin"
     CONFIG_PATH = "../../../calvin/calvin_models/conf"
-    SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+    SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training_new"
+    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch.autograd.set_grad_enabled(False)
@@ -61,12 +62,16 @@ if __name__ == "__main__":
     raft_transforms = Raft_Large_Weights.DEFAULT.transforms()
 
     dataset_caption_info = {}
+    normalizer = flow_utils.FlowNormalizer(200, 200)
 
     for episode_idx in tqdm.tqdm(range(total_episodes)):
         vid_frames, caption = calvin.get_idx(dataset, ds_info, sel_idx=episode_idx)
         images, flow = get_optical_flow(vid_frames, raft_model, raft_transforms, device)
 
         cur_name = f"eps_{episode_idx:05d}"
+        normalized_flow = (flow + 200) / (200 * 2)
+        images = calvin.float_im_to_int(images, 1, True)
+
         save_path = f"{SAVE_ROOT}/{cur_name}.npz"
         np.savez(save_path, flow=flow.numpy(), image=images[:8])
         dataset_caption_info[cur_name] = caption
