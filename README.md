@@ -1,6 +1,15 @@
 # LangToMo
 
 
+## Installation
+
+```
+Python=3.9
+conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+pip install -U diffusers accelerate transformers
+```
+
+
 ## Sythetic Setup - CALVIN
 This section explains using CALVIN dataset to train our model.
 
