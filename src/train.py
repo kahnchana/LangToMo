@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import einops
 import numpy as np
@@ -19,19 +19,19 @@ from src.model import diffusion
 
 @dataclass
 class TrainingConfig:
-    image_size = 128  # the generated image resolution
-    train_batch_size = 32
-    eval_batch_size = 16  # how many images to sample during evaluation
-    num_epochs = 500
-    gradient_accumulation_steps = 1
-    learning_rate = 1e-4
-    lr_warmup_steps = 500
-    save_image_epochs = 1
-    save_model_epochs = 10
-    mixed_precision = "fp16"  # `no` for float32, `fp16` for automatic mixed precision
-    output_dir = "experiments/test_001"  # the model name locally and on the HF Hub
-    overwrite_output_dir = True  # overwrite the old model when re-running the notebook
-    seed = 0
+    image_size: int = 128  # the generated image resolution
+    train_batch_size: int = 32
+    eval_batch_size: int = 16  # how many images to sample during evaluation
+    num_epochs: int = 500
+    gradient_accumulation_steps: int = 1
+    learning_rate: float = 1e-4
+    lr_warmup_steps: int = 500
+    save_image_epochs: int = 1
+    save_model_epochs: int = 10
+    mixed_precision: str = "fp16"  # `no` for float32, `fp16` for automatic mixed precision
+    output_dir: str = "experiments/test_001"  # the model name locally and on the HF Hub
+    overwrite_output_dir: bool = True  # overwrite the old model when re-running the notebook
+    seed: int = 0
 
 
 def evaluate(config, epoch, dataloader, model):
@@ -86,6 +86,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         if config.output_dir is not None:
             os.makedirs(config.output_dir, exist_ok=True)
         accelerator.init_trackers("train_example")
+        wandb.init(config=asdict(config))
 
     # Prepare everything
     # There is no specific order to remember, you just need to unpack the
