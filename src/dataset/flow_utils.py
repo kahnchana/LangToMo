@@ -1,5 +1,8 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
+from PIL import Image
 
 
 class FlowNormalizer:
@@ -47,6 +50,43 @@ class FlowNormalizer:
         # Unnormalize channel 1 (width)
         flow[..., 1] = (normalized_flow[..., 1] * 2 * self.width) - self.width
         return flow
+
+
+def visualize_flow_vectors_as_PIL(image, flow, step=16, title="Optical Flow Vectors"):
+    """
+    Overlay optical flow vectors on an image.
+
+    Parameters:
+        image (numpy.ndarray): Input image (H, W, 3).
+        flow (numpy.ndarray): Optical flow array (H, W, 2).
+        step (int): Sampling step for displaying flow vectors.
+
+    Returns:
+        PIL.Image.Image: Visualization as a PIL image.
+    """
+
+    h, w = flow.shape[:2]
+    y, x = np.mgrid[step // 2 : h : step, step // 2 : w : step].astype(np.int32)
+    fx, fy = flow[x, y].T
+
+    # Create a matplotlib figure
+    fig = Figure(figsize=(10, 10))
+    canvas = FigureCanvas(fig)
+    ax = fig.add_subplot(111)
+
+    # Overlay flow vectors
+    ax.imshow(image)
+    ax.quiver(x, y, fx, fy, color="red", angles="xy", scale_units="xy", scale=1, width=0.002)
+    ax.set_title(title)
+    ax.axis("off")
+    fig.tight_layout()
+
+    # Render the figure to a PIL image
+    canvas.draw()
+    buf = canvas.buffer_rgba()
+    pil_image = Image.frombuffer("RGBA", canvas.get_width_height(), buf, "raw", "RGBA", 0, 1)
+
+    return pil_image
 
 
 def visualize_flow_vectors(image, flow, step=16, save_path=None, title="Optical Flow Vectors"):
