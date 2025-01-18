@@ -33,7 +33,12 @@ if __name__ == "__main__":
     # Configs for CALVIN dataset, GPU device, and save path.
     ROOT_DIR = "/home/kanchana/repo/calvin"
     CONFIG_PATH = "../../../calvin/calvin_models/conf"
-    SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+    SPLIT = "train"  # train or val
+
+    if SPLIT == "train":
+        SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+    else:
+        SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_validation"
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch.autograd.set_grad_enabled(False)
@@ -50,7 +55,10 @@ if __name__ == "__main__":
     data_module = hydra.utils.instantiate(cfg.datamodule, num_workers=4)
     data_module.prepare_data()
     data_module.setup()
-    dataset = data_module.train_dataloader()["vis"].dataset
+    if SPLIT == "train":
+        dataset = data_module.train_dataloader()["vis"].dataset
+    else:
+        dataset = data_module.val_dataloader().dataset.datasets["vis"]
 
     file_name = dataset.abs_datasets_dir / cfg.lang_folder / "auto_lang_ann.npy"
     ds_info = np.load(file_name, allow_pickle=True).item()
@@ -72,7 +80,7 @@ if __name__ == "__main__":
         images = calvin.float_im_to_int(images, 1, True)
 
         save_path = f"{SAVE_ROOT}/{cur_name}.npz"
-        np.savez(save_path, flow=flow.numpy(), image=images[:8])
+        np.savez(save_path, flow=normalized_flow.numpy(), image=images[:8])
         dataset_caption_info[cur_name] = caption
 
     json.dump(dataset_caption_info, open(f"{SAVE_ROOT}/captions.json", "w"), indent=2)
