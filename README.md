@@ -7,6 +7,7 @@
 Python=3.9
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
 pip install -U diffusers accelerate transformers
+pip install einops matplotlib
 ```
 
 
