@@ -162,6 +162,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
+    parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
     return args
 
@@ -169,6 +170,7 @@ def parse_args():
 if __name__ == "__main__":
     config = TrainingConfig()
     opts = parse_args()
+    config.output_dir = f"experiments/{opts.output_dir}"
 
     DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
     CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
