@@ -33,8 +33,7 @@ if __name__ == "__main__":
     # Configs for CALVIN dataset, GPU device, and save path.
     ROOT_DIR = "/home/kanchana/repo/calvin"
     CONFIG_PATH = "../../../calvin/calvin_models/conf"
-    SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training_new"
-    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+    SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch.autograd.set_grad_enabled(False)
