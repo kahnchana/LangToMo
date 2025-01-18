@@ -72,7 +72,7 @@ class RobotTrainingDataset(Dataset):
         if self.transform is not None:
             image = self.transform(image)
         if self.target_transform is not None:
-            flow = self.transform(flow)
+            flow = self.target_transform(flow)
 
         # Get the caption
         caption = self.caption_data[cur_name]
@@ -82,6 +82,43 @@ class RobotTrainingDataset(Dataset):
             return {"image": image, "flow": flow, "caption": caption, "caption_emb": caption_emb}
         else:
             return {"image": image, "flow": flow, "caption_emb": caption_emb}
+
+
+class RobotVisualizationDataset(RobotTrainingDataset):
+    def __len__(self):
+        return len(self.episode_ids)
+
+    def __getitem__(self, idx):
+        """
+        Load a single data sample.
+
+        Args:
+            idx (int): Index of the episode to load.
+
+        Returns:
+            dict: Contains image, flow, and caption.
+        """
+        episode_id = self.episode_ids[idx]
+
+        cur_name = f"{episode_id}"
+        datum_file = os.path.join(self.data_root, f"{cur_name}.npz")
+
+        # Load the .npz file
+        datum = np.load(datum_file)
+        image = datum["image"]
+        flow = datum["flow"]
+
+        # Apply transformations if any
+        if self.transform is not None:
+            image = self.transform(image)
+        if self.target_transform is not None:
+            flow = self.target_transform(flow)
+
+        # Get the caption
+        caption = self.caption_data[cur_name]
+        caption_emb = self.caption_embeddings[cur_name].reshape(1, -1)
+
+        return {"image": image, "flow": flow, "caption": caption, "caption_emb": caption_emb}
 
 
 def get_transforms(image_size=(128, 128)):
