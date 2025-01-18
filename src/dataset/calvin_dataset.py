@@ -110,7 +110,7 @@ if __name__ == "__main__":
     DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
     CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
 
-    dataset = RobotTrainingDataset(DATA_ROOT, CAPTION_FILE)
+    dataset = RobotTrainingDataset(DATA_ROOT, CAPTION_FILE, include_captions=True)
 
     for i in range(len(dataset)):
         sample = dataset[i]

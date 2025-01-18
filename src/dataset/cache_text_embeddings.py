@@ -5,7 +5,12 @@ import torch
 import tqdm
 from sentence_transformers import SentenceTransformer
 
-DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+SPLIT = "train"
+
+if SPLIT == "train":
+    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+else:
+    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_validation"
 caption_file = f"{DATA_ROOT}/captions.json"
 caption_data = json.load(open(caption_file, "r"))
 
