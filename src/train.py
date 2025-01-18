@@ -1,3 +1,4 @@
+import argparse
 import os
 from dataclasses import asdict, dataclass
 
@@ -58,9 +59,13 @@ def evaluate(config, epoch, dataloader, model):
     vis_gt = einops.rearrange(clean_flow[:vis_count].cpu().numpy(), "b c h w -> b h w c")
     vis_gt = normalizer.unnormalize(vis_gt)
 
-    vis_gt_flow = [flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_gt[i], step=4) for i in range(vis_count)]
+    vis_gt_flow = [
+        flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_gt[i], step=4, title="Ground Truth Optical Flow")
+        for i in range(vis_count)
+    ]
     vis_pred_flow = [
-        flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_pred[i], step=4) for i in range(vis_count)
+        flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_pred[i], step=4, title="Predicted Optical Flow")
+        for i in range(vis_count)
     ]
 
     vis_joint = [make_image_grid([x, y], rows=1, cols=2) for x, y in zip(vis_gt_flow, vis_pred_flow)]
@@ -85,8 +90,10 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
     if accelerator.is_main_process:
         if config.output_dir is not None:
             os.makedirs(config.output_dir, exist_ok=True)
-        accelerator.init_trackers("train_example")
-        wandb.init(config=asdict(config))
+        accelerator.init_trackers(
+            "train_example",
+            init_kwargs={"wandb": {"config": asdict(config)}},
+        )
 
     # Prepare everything
     # There is no specific order to remember, you just need to unpack the
@@ -152,8 +159,16 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 model.module.save_pretrained(config.output_dir)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-gpu", type=int, default=4)
+    args = parser.parse_args()
+    return args
+
+
 if __name__ == "__main__":
     config = TrainingConfig()
+    opts = parse_args()
 
     DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
     CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
@@ -182,4 +197,4 @@ if __name__ == "__main__":
 
     # Call training.
     args = (config, unet_model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
-    notebook_launcher(train_loop, args, num_processes=4)
+    notebook_launcher(train_loop, args, num_processes=opts.num_gpu)
