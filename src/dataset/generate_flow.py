@@ -33,20 +33,20 @@ if __name__ == "__main__":
     # Configs for CALVIN dataset, GPU device, and save path.
     ROOT_DIR = "/home/kanchana/repo/calvin"
     CONFIG_PATH = "../../../calvin/calvin_models/conf"
-    SPLIT = "train"  # train or val
 
-    if SPLIT == "train":
-        SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
-    else:
-        SAVE_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_validation"
+    SPLIT_OPTIONS = ["training", "validation"]
+    SPLIT = SPLIT_OPTIONS[0]
+    TASK_OPTIONS = ["D_D", "ABC_D"]
+    TASK = TASK_OPTIONS[1]
 
+    SAVE_ROOT = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT}"
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch.autograd.set_grad_enabled(False)
 
     hydra.initialize(config_path=CONFIG_PATH, job_name="notebook_debug")
 
     overrides = [
-        f"datamodule.root_data_dir={ROOT_DIR}/dataset/task_D_D/",
+        f"datamodule.root_data_dir={ROOT_DIR}/dataset/task_{TASK}/",
         "datamodule/observation_space=lang_rgb_static_rel_act",
     ]
     cfg = hydra.compose(config_name="lang_ann.yaml", overrides=overrides)
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     data_module = hydra.utils.instantiate(cfg.datamodule, num_workers=4)
     data_module.prepare_data()
     data_module.setup()
-    if SPLIT == "train":
+    if SPLIT == "training":
         dataset = data_module.train_dataloader()["vis"].dataset
     else:
         dataset = data_module.val_dataloader().dataset.datasets["vis"]

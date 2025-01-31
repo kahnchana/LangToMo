@@ -6,8 +6,12 @@ import numpy as np
 from src.dataset import flow_utils
 
 # Uncomment one to select split for visualization.
-DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
-DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_validation"
+SPLIT_OPTIONS = ["training", "validation"]
+TASK_OPTIONS = ["D_D", "ABC_D"]
+SPLIT = SPLIT_OPTIONS[1]
+TASK = TASK_OPTIONS[1]
+
+DATA_ROOT = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT}"
 
 episode_idx = 10
 cur_name = f"eps_{episode_idx:05d}"
