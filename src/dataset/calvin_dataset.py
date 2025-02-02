@@ -121,14 +121,21 @@ class RobotVisualizationDataset(RobotTrainingDataset):
         return {"image": image, "flow": flow, "caption": caption, "caption_emb": caption_emb}
 
 
-def get_transforms(image_size=(128, 128)):
-    image_transform = transforms.Compose(
-        [
-            transforms.Lambda(lambda x: torch.from_numpy(x)),
-            transforms.Resize(image_size),
-        ]
-    )
+def get_transforms(image_size=(128, 128), add_color_jitter=False):
+    image_transform_list = [
+        transforms.Lambda(lambda x: torch.from_numpy(x)),
+        transforms.Resize(image_size),
+    ]
+    # Val Image Transform (no augs).
+    val_image_transform = transforms.Compose(image_transform_list)
+    if add_color_jitter:
+        image_transform_list.append(
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        )
+    # Final Image (input) Transform.
+    image_transform = transforms.Compose(image_transform_list)
 
+    # Final Flow (target) Transform.
     flow_transform = transforms.Compose(
         [
             transforms.Lambda(lambda x: torch.from_numpy(x)),
@@ -139,7 +146,7 @@ def get_transforms(image_size=(128, 128)):
         ]
     )
 
-    return image_transform, flow_transform
+    return image_transform, flow_transform, val_image_transform
 
 
 # Example usage

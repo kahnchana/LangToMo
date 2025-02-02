@@ -35,7 +35,7 @@ class TrainingConfig:
     seed: int = 0
 
 
-def evaluate(config, epoch, dataloader, model):
+def evaluate(config, epoch, dataloader, model, split="train"):
     # Sample some images from random noise (this is the backward diffusion process).
     # The default pipeline output type is `List[PIL.Image]`
     for batch in dataloader:
@@ -70,16 +70,11 @@ def evaluate(config, epoch, dataloader, model):
 
     vis_joint = [make_image_grid([x, y], rows=1, cols=2) for x, y in zip(vis_gt_flow, vis_pred_flow)]
 
-    # Save the images.
-    wandb.log(
-        {
-            "epoch": epoch,
-            "images": [wandb.Image(x) for x in vis_joint],
-        }
-    )
+    # Images to log.
+    return {f"{split}/images": [wandb.Image(x) for x in vis_joint]}
 
 
-def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler):
+def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, val_dataloader, lr_scheduler):
     # Initialize accelerator and tensorboard logging
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
@@ -91,15 +86,15 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         if config.output_dir is not None:
             os.makedirs(config.output_dir, exist_ok=True)
         accelerator.init_trackers(
-            "train_example",
+            "LangToMo",
             init_kwargs={"wandb": {"config": asdict(config)}},
         )
 
     # Prepare everything
     # There is no specific order to remember, you just need to unpack the
     # objects in the same order you gave them to the prepare method.
-    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, lr_scheduler
+    model, optimizer, train_dataloader, val_dataloader, lr_scheduler = accelerator.prepare(
+        model, optimizer, train_dataloader, val_dataloader, lr_scheduler
     )
 
     global_step = 0
@@ -117,6 +112,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             clean_flow = batch["flow"]
             image_condition = batch["image"]
             text_condition = batch["caption_emb"]
+            # text_condition = torch.ones_like(text_condition)  # Ablate text condition.
 
             # Sample noise to add to the clean flow.
             noise = torch.randn(clean_flow.shape, device=clean_flow.device)
@@ -153,7 +149,17 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         # After each epoch you optionally sample some demo images with evaluate() and save the model
         if accelerator.is_main_process:
             if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
-                evaluate(config, epoch, train_dataloader, model)
+                # Train set vis.
+                train_set_vis = evaluate(config, epoch, train_dataloader, model, split="train")
+                # Val set vis.
+                val_set_vis = evaluate(config, epoch, val_dataloader, model, split="val")
+                log_data = {
+                    "epoch": epoch,
+                    **train_set_vis,
+                    **val_set_vis,
+                }
+                # Log to W&B
+                accelerator.log(log_data, step=global_step)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 model.module.save_pretrained(config.output_dir)
@@ -172,18 +178,28 @@ if __name__ == "__main__":
     opts = parse_args()
     config.output_dir = f"experiments/{opts.output_dir}"
 
-    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
-    CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
+    SPLIT_OPTIONS = ["training", "validation"]
+    TASK_OPTIONS = ["D_D", "ABC_D"]
+    TASK = TASK_OPTIONS[1]
+
+    train_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[0]}"
+    val_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
+    train_captions = os.path.join(train_data_root, "captions.json")
+    val_captions = os.path.join(val_data_root, "captions.json")
 
     # Load dataset.
     image_size = (128, 128)
-    image_transform, flow_transform = calvin_dataset.get_transforms(image_size)
-    dataset = calvin_dataset.RobotTrainingDataset(
-        DATA_ROOT, CAPTION_FILE, transform=image_transform, target_transform=flow_transform
+    image_transform, flow_transform, val_image_transform = calvin_dataset.get_transforms(image_size)
+    train_dataset = calvin_dataset.RobotTrainingDataset(
+        train_data_root, train_captions, transform=image_transform, target_transform=flow_transform
+    )
+    val_dataset = calvin_dataset.RobotTrainingDataset(
+        val_data_root, val_captions, transform=val_image_transform, target_transform=flow_transform
     )
 
     # Setup dataloader.
-    train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.train_batch_size, shuffle=False)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=config.train_batch_size, shuffle=True)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config.train_batch_size, shuffle=False)
 
     # Setup model.
     unet_model = diffusion.get_conditional_unet(config.image_size)
@@ -198,5 +214,5 @@ if __name__ == "__main__":
     )
 
     # Call training.
-    args = (config, unet_model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
+    args = (config, unet_model, noise_scheduler, optimizer, train_dataloader, val_dataloader, lr_scheduler)
     notebook_launcher(train_loop, args, num_processes=opts.num_gpu)
