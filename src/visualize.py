@@ -23,16 +23,21 @@ def save_gif(image_list, save_path, duration=200, loop=0, end_pause=3):
 
 
 if __name__ == "__main__":
-    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_validation"
+    SPLIT_OPTIONS = ["training", "validation"]
+    TASK_OPTIONS = ["D_D", "ABC_D"]
+    TASK = TASK_OPTIONS[1]
+
+    DATA_ROOT = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
     CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
     device = "cuda:0"
-    model_path = "/home/kanchana/repo/LangToMo/experiments/pretrained/run_001"
+    model_id = "test_007"
+    model_path = f"/home/kanchana/repo/LangToMo/experiments/{model_id}"
 
     # Load dataset.
     image_size = (128, 128)
-    image_transform, flow_transform = calvin_dataset.get_transforms(image_size)
+    _, flow_transform, val_image_transform = calvin_dataset.get_transforms(image_size)
     dataset = calvin_dataset.RobotVisualizationDataset(
-        DATA_ROOT, CAPTION_FILE, transform=image_transform, target_transform=flow_transform, include_captions=True
+        DATA_ROOT, CAPTION_FILE, transform=val_image_transform, target_transform=flow_transform, include_captions=True
     )
 
     # Setup dataloader.
@@ -42,6 +47,8 @@ if __name__ == "__main__":
     model = diffusers.UNet2DConditionModel.from_pretrained(model_path, use_safetensors=True).to(device)
 
     vis_count = 20
+    save_dir = f"experiments/visualization/{model_id}"
+    os.makedirs(save_dir, exist_ok=True)
     for idx, batch in tqdm.tqdm(enumerate(dataloader), total=vis_count):
         if idx > vis_count:
             break
@@ -75,7 +82,5 @@ if __name__ == "__main__":
 
         joint_video = [diffusers.utils.make_image_grid([x, y], rows=1, cols=2) for x, y in zip(gt_video, pred_video)]
 
-        output_path = f"experiments/visualization/vis_{idx:04d}.gif"
-        # pred_output_path = f"experiments/visualization/pred_{idx:04d}.gif"
+        output_path = f"{save_dir}/vis_{idx:04d}.gif"
         save_gif(joint_video, output_path)
-        # save_gif(pred_video, pred_output_path)
