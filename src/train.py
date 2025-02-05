@@ -42,6 +42,7 @@ def evaluate(config, epoch, dataloader, model, split="train"):
         clean_flow = batch["flow"]
         image_cond = batch["image"]
         text_cond = batch["caption_emb"]
+        # text_cond = torch.ones_like(text_cond)  # Ablate text condition.
         start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)  # random noise
 
         generated_flow = inference.run_inference(model, start_flow, image_cond, text_cond, num_inference_steps=50)
@@ -198,8 +199,12 @@ if __name__ == "__main__":
     )
 
     # Setup dataloader.
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=config.train_batch_size, shuffle=True)
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config.train_batch_size, shuffle=False)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=opts.num_gpu
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=config.train_batch_size, shuffle=False, num_workers=opts.num_gpu
+    )
 
     # Setup model.
     unet_model = diffusion.get_conditional_unet(config.image_size)
