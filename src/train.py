@@ -169,6 +169,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, val_
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
+    parser.add_argument("--dataset", type=str, default="calvin")
     parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
     return args
@@ -180,11 +181,17 @@ if __name__ == "__main__":
     config.output_dir = f"experiments/{opts.output_dir}"
 
     SPLIT_OPTIONS = ["training", "validation"]
-    TASK_OPTIONS = ["D_D", "ABC_D"]
-    TASK = TASK_OPTIONS[1]
 
-    train_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[0]}"
-    val_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
+    if opts.dataset == "calvin":
+        TASK_OPTIONS = ["D_D", "ABC_D"]
+        TASK = TASK_OPTIONS[1]
+        train_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[0]}"
+        val_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
+    else:
+        data_root = "/home/kanchana/data/ssv2_flow"
+        train_data_root = f"{data_root}/{SPLIT_OPTIONS[0]}"
+        val_data_root = f"{data_root}/{SPLIT_OPTIONS[1]}"
+
     train_captions = os.path.join(train_data_root, "captions.json")
     val_captions = os.path.join(val_data_root, "captions.json")
 

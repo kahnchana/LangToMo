@@ -10,7 +10,13 @@ SPLIT = SPLIT_OPTIONS[1]
 TASK_OPTIONS = ["D_D", "ABC_D"]
 TASK = TASK_OPTIONS[1]
 
-DATA_ROOT = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT}"
+
+data_root = "/home/kanchana/data/ssv2_flow"
+# train_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[0]}"
+# val_data_root = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
+
+# DATA_ROOT = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT}"
+DATA_ROOT = f"{data_root}/{SPLIT_OPTIONS[1]}"
 caption_file = f"{DATA_ROOT}/captions.json"
 caption_data = json.load(open(caption_file, "r"))
 

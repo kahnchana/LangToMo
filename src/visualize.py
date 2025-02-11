@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import diffusers
@@ -22,16 +23,26 @@ def save_gif(image_list, save_path, duration=200, loop=0, end_pause=3):
     )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default="test_006")
+    parser.add_argument("--model-root", type=str, default="/home/kanchana/repo/LangToMo/experiments")
+    parser.add_argument("--data-root", type=str, default="/home/kanchana/data/calvin")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
+
     SPLIT_OPTIONS = ["training", "validation"]
     TASK_OPTIONS = ["D_D", "ABC_D"]
     TASK = TASK_OPTIONS[1]
 
-    DATA_ROOT = f"/home/kanchana/data/calvin/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
+    DATA_ROOT = f"{args.data_root}/task_{TASK}/robot_{SPLIT_OPTIONS[1]}"
     CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
     device = "cuda:0"
-    model_id = "test_007"
-    model_path = f"/home/kanchana/repo/LangToMo/experiments/{model_id}"
+    model_id = args.model
+    model_path = f"{args.model_root}/{model_id}"
 
     # Load dataset.
     image_size = (128, 128)
