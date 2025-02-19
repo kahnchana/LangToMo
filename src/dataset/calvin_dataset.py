@@ -71,7 +71,7 @@ class RobotTrainingDataset(Dataset):
 
         # Apply transformations if any
         if self.transform is not None:
-            image = self.transform(image)
+            image, flow = self.transform((image, flow))
         if self.target_transform is not None:
             flow = self.target_transform(flow)
 
@@ -163,6 +163,108 @@ class RandomPatchMasking:
             img[:, row : row + patch_size, col : col + patch_size] = 0  # Mask with zero
 
         return img
+
+
+class RandomCropResize:
+    def __init__(self, crop_ratio, resize_size):
+        """
+        crop_ratio: Tuple (H, W) of crop dimensions
+        resize_size: Tuple (H, W) of resized dimensions
+        """
+        self.crop_ratio = crop_ratio
+        self.resize_size = resize_size
+
+    def __call__(self, image, flow):
+        """
+        image: Tensor (C, H, W)
+        flow: Tensor (2, H, W)  -> (u, v) flow field
+
+        Returns cropped and resized image, flow
+        """
+        orig_w, orig_h = image.shape[1:]
+        crop_h, crop_w = [int(self.crop_ratio * x) for x in (orig_h, orig_w)]
+
+        # Ensure crop fits inside original image
+        if orig_h < crop_h or orig_w < crop_w:
+            raise ValueError("Crop size should be smaller than original image size.")
+
+        # Random crop coordinates
+        x1 = random.randint(0, orig_w - crop_w)
+        y1 = random.randint(0, orig_h - crop_h)
+
+        # Crop image
+        image = image[:, y1 : y1 + crop_h, x1 : x1 + crop_w]
+
+        # Crop flow field
+        flow = flow[:, y1 : y1 + crop_h, x1 : x1 + crop_w]
+
+        # Resize image
+        image = transforms.functional.resize(image, self.resize_size)
+
+        # Resize flow field (bilinear interpolation). Flow normalized, no scaling required.
+        flow = transforms.functional.resize(flow, self.resize_size)
+
+        return image, flow
+
+
+def get_joint_transforms(
+    image_size=(128, 128), add_color_jitter=False, mask_args=None, crop_ratio=None, mask_crop_ratio=None
+):
+    """
+    Returns a single transform that takes (image, flow) and applies the same
+    augmentations while ensuring consistency.
+    """
+    # Convert numpy to torch tensor if necessary.
+    tensor_transform = transforms.Lambda(lambda x: (torch.from_numpy(x[0]), torch.from_numpy(x[1])))
+
+    # Crop Resize Transform.
+    crop_resize_transform = transforms.Lambda(
+        lambda x: (RandomCropResize(crop_ratio=crop_ratio, resize_size=image_size)(x[0], x[1]))
+    )
+
+    # Spatial transformation (resize applied to both image and flow).
+    resize_transform = transforms.Lambda(
+        lambda x: (transforms.Resize(image_size)(x[0]), transforms.Resize(image_size)(x[1]))
+    )
+
+    # Color jitter (applied only to the image).
+    color_jitter = transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
+    color_transform = transforms.Lambda(lambda x: (color_jitter(x[0]), x[1]))  # Only modifies image
+
+    # Apply masking if specified.
+    mask_transform = transforms.Lambda(lambda x: (RandomPatchMasking(**mask_args)(x[0]), x[1]))
+
+    # Crop of masking transform.
+    def crop_or_mask(pair):
+        pick = random.random() < mask_crop_ratio
+        if pick:
+            pair = resize_transform(pair)
+            return mask_transform(pair)
+        else:
+            return crop_resize_transform(pair)
+
+    crop_or_mask_transform = transforms.Lambda(crop_or_mask)
+
+    # Compose all transforms into a pipeline.
+    train_transform_list = [
+        tensor_transform,
+    ]
+    if add_color_jitter:
+        train_transform_list.append(color_transform)
+    if mask_crop_ratio is not None:
+        train_transform_list.append(crop_or_mask_transform)
+    else:
+        if crop_ratio is not None:
+            train_transform_list.append(crop_resize_transform)
+        else:
+            train_transform_list.append(resize_transform)
+        if mask_args is not None:
+            train_transform_list.append(mask_transform)
+
+    train_transform = transforms.Compose(train_transform_list)
+    val_transform = transforms.Compose([tensor_transform, resize_transform])
+
+    return train_transform, val_transform
 
 
 def get_transforms(image_size=(128, 128), add_color_jitter=False, mask_args=None):

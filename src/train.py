@@ -35,6 +35,8 @@ class TrainingConfig:
     seed: int = 0
     mask_ratio: float = 0.50
     mask_patch: int = 16
+    crop_ratio: float = 0.7
+    mask_crop_ratio: float = 0.5
     dataset: str = "calvin"
 
 
@@ -176,6 +178,8 @@ def parse_args():
     parser.add_argument("--image-size", type=int, default=128)
     parser.add_argument("--mask-ratio", type=float, default=0.50)
     parser.add_argument("--mask-patch", type=int, default=16)
+    parser.add_argument("--crop-ratio", type=float, default=0.70)
+    parser.add_argument("--mask-crop-ratio", type=float, default=0.50)
     parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
     return args
@@ -213,13 +217,17 @@ if __name__ == "__main__":
     # Load dataset.
     image_size = (opts.image_size, opts.image_size)
     mask_opt = {"mask_percentage": opts.mask_ratio, "patch_size": opts.mask_patch}
-    image_transform, flow_transform, val_image_transform = calvin_dataset.get_transforms(image_size, mask_args=mask_opt)
-    train_dataset = calvin_dataset.RobotTrainingDataset(
-        train_data_root, train_captions, transform=image_transform, target_transform=flow_transform
+    crop_ratio = opts.crop_ratio
+    mask_crop_ratio = opts.mask_crop_ratio
+    train_transform, val_transform = calvin_dataset.get_joint_transforms(
+        image_size=image_size,
+        add_color_jitter=False,
+        mask_args=mask_opt,
+        crop_ratio=crop_ratio,
+        mask_crop_ratio=mask_crop_ratio,
     )
-    val_dataset = calvin_dataset.RobotTrainingDataset(
-        val_data_root, val_captions, transform=val_image_transform, target_transform=flow_transform
-    )
+    train_dataset = calvin_dataset.RobotTrainingDataset(train_data_root, train_captions, transform=train_transform)
+    val_dataset = calvin_dataset.RobotTrainingDataset(val_data_root, val_captions, transform=val_transform)
 
     # Setup dataloader.
     train_dataloader = torch.utils.data.DataLoader(
