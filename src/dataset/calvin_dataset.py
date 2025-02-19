@@ -1,5 +1,6 @@
 import json
 import os
+import random
 
 import numpy as np
 import torch
@@ -121,7 +122,50 @@ class RobotVisualizationDataset(RobotTrainingDataset):
         return {"image": image, "flow": flow, "caption": caption, "caption_emb": caption_emb}
 
 
-def get_transforms(image_size=(128, 128), add_color_jitter=False):
+class RandomPatchMasking:
+    def __init__(self, mask_percentage: float = 0.4, patch_size: int = 8):
+        """
+        Args:
+            k (float): Percentage of patches to mask (0 to 1).
+        """
+        self.k = mask_percentage
+        self.p = patch_size
+
+    def __call__(self, img):
+        """
+        Apply random patch masking to an image.
+
+        Args:
+            img (PIL Image or Tensor): Image of size (C, H, W) or (H, W).
+
+        Returns:
+            Transformed image with random patches masked.
+        """
+        if isinstance(img, torch.Tensor):
+            pass
+            # img = img.clone()  # Avoid modifying original tensor
+        else:
+            img = transforms.ToTensor()(img)
+
+        _, H, _ = img.shape  # (C, 128, 128)
+        patch_size = self.p
+        grid_size = H // patch_size
+        num_patches = grid_size**2
+        num_masked = int(self.k * num_patches)  # k% of patches
+
+        # Generate random indices for patches to mask
+        indices = random.sample(range(num_patches), num_masked)
+
+        # Mask selected patches
+        for idx in indices:
+            row = (idx // grid_size) * patch_size
+            col = (idx % grid_size) * patch_size
+            img[:, row : row + patch_size, col : col + patch_size] = 0  # Mask with zero
+
+        return img
+
+
+def get_transforms(image_size=(128, 128), add_color_jitter=False, mask_args=None):
     image_transform_list = [
         transforms.Lambda(lambda x: torch.from_numpy(x)),
         transforms.Resize(image_size),
@@ -132,6 +176,10 @@ def get_transforms(image_size=(128, 128), add_color_jitter=False):
         image_transform_list.append(
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         )
+
+    if mask_args is not None:
+        image_transform_list.append(RandomPatchMasking(**mask_args))
+
     # Final Image (input) Transform.
     image_transform = transforms.Compose(image_transform_list)
 

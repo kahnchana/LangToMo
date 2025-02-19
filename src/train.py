@@ -23,7 +23,7 @@ class TrainingConfig:
     image_size: int = 128  # the generated image resolution
     train_batch_size: int = 32
     eval_batch_size: int = 16  # how many images to sample during evaluation
-    num_epochs: int = 500
+    num_epochs: int = 100
     gradient_accumulation_steps: int = 1
     learning_rate: float = 1e-4
     lr_warmup_steps: int = 500
@@ -33,6 +33,9 @@ class TrainingConfig:
     output_dir: str = "experiments/test_001"  # the model name locally and on the HF Hub
     overwrite_output_dir: bool = True  # overwrite the old model when re-running the notebook
     seed: int = 0
+    mask_ratio: float = 0.50
+    mask_patch: int = 16
+    dataset: str = "calvin"
 
 
 def evaluate(config, epoch, dataloader, model, split="train"):
@@ -170,15 +173,27 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
     parser.add_argument("--dataset", type=str, default="calvin")
+    parser.add_argument("--image-size", type=int, default=128)
+    parser.add_argument("--mask-ratio", type=float, default=0.50)
+    parser.add_argument("--mask-patch", type=int, default=16)
     parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
     return args
 
 
+def update_config_with_args(config, args):
+    config.dataset = args.dataset
+    config.image_size = args.image_size
+    config.mask_ratio = args.mask_ratio
+    config.mask_patch = args.mask_patch
+    config.output_dir = f"experiments/{opts.output_dir}"
+    return config
+
+
 if __name__ == "__main__":
     config = TrainingConfig()
     opts = parse_args()
-    config.output_dir = f"experiments/{opts.output_dir}"
+    config = update_config_with_args(config, opts)
 
     SPLIT_OPTIONS = ["training", "validation"]
 
@@ -196,8 +211,9 @@ if __name__ == "__main__":
     val_captions = os.path.join(val_data_root, "captions.json")
 
     # Load dataset.
-    image_size = (128, 128)
-    image_transform, flow_transform, val_image_transform = calvin_dataset.get_transforms(image_size)
+    image_size = (opts.image_size, opts.image_size)
+    mask_opt = {"mask_percentage": opts.mask_ratio, "patch_size": opts.mask_patch}
+    image_transform, flow_transform, val_image_transform = calvin_dataset.get_transforms(image_size, mask_args=mask_opt)
     train_dataset = calvin_dataset.RobotTrainingDataset(
         train_data_root, train_captions, transform=image_transform, target_transform=flow_transform
     )
