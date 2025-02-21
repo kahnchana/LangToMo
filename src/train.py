@@ -38,6 +38,7 @@ class TrainingConfig:
     crop_ratio: float = 0.7
     mask_crop_ratio: float = 0.5
     dataset: str = "calvin"
+    pretrained: str = None
 
 
 def evaluate(config, epoch, dataloader, model, split="train"):
@@ -175,11 +176,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
     parser.add_argument("--dataset", type=str, default="calvin")
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image-size", type=int, default=128)
     parser.add_argument("--mask-ratio", type=float, default=0.50)
     parser.add_argument("--mask-patch", type=int, default=16)
     parser.add_argument("--crop-ratio", type=float, default=0.70)
     parser.add_argument("--mask-crop-ratio", type=float, default=0.50)
+    parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
     return args
@@ -187,9 +190,11 @@ def parse_args():
 
 def update_config_with_args(config, args):
     config.dataset = args.dataset
+    config.learning_rate = args.lr
     config.image_size = args.image_size
     config.mask_ratio = args.mask_ratio
     config.mask_patch = args.mask_patch
+    config.pretrained = args.pretrained
     config.output_dir = f"experiments/{opts.output_dir}"
     return config
 
@@ -238,7 +243,7 @@ if __name__ == "__main__":
     )
 
     # Setup model.
-    unet_model = diffusion.get_conditional_unet(config.image_size)
+    unet_model = diffusion.get_conditional_unet(config.image_size, opts.pretrained)
 
     # Noise scheduler, optimizer and LR scheduler.
     noise_scheduler = DDPMScheduler(num_train_timesteps=1000)

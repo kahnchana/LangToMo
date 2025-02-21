@@ -3,7 +3,11 @@ import numpy as np
 import torch
 
 
-def get_conditional_unet(image_size=128):
+def get_conditional_unet(image_size=128, pretrained=None):
+    if pretrained is not None:
+        model = diffusers.UNet2DConditionModel.from_pretrained(pretrained, use_safetensors=True)
+        return model
+
     model = diffusers.UNet2DConditionModel(
         sample_size=image_size,  # Target image resolution
         in_channels=5,  # Number of input channels, e.g., RGB image + flow
