@@ -29,3 +29,9 @@ python test/dataset/test_generated_flow.py
 
 Additional code for visualization and sanity checks on CALVIN optical flow generation
 are found in `src/dataset/calvin.py`.
+
+
+## Training
+```bash
+python src/train.py --output-dir test_0XX
+```
