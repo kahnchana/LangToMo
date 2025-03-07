@@ -13,22 +13,26 @@ class RobotTrainingDataset(Dataset):
         self,
         data_root,
         caption_file,
+        action_file=None,
         transform=None,
         target_transform=None,
         frames_per_episode=8,
         include_captions=False,
+        include_actions=False,
     ):
         """
         Args:
             data_root (str): Root directory where the data files are stored.
             caption_file (str): Path to the JSON file containing captions.
+            action_file (str, optional): Path to the JSON file containing actions.
             transform (callable, optional): Transform to apply to the images.
             target_transform (callable, optional): Transform to apply to the flow targets.
             frames_per_episode (int): 8 by default
             include_captions (bool): Whether to include captions in the output.
+            include_actions (bool): Whether to include actions in the output.
         """
         self.data_root = data_root
-        self.caption_data = self._load_captions(caption_file)
+        self.caption_data = self._load_json(caption_file)
         self.caption_embeddings = self._load_caption_embeddings()
         self.episode_ids = list(self.caption_data.keys())
         self.frames_per_episode = frames_per_episode
@@ -36,14 +40,24 @@ class RobotTrainingDataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.include_captions = include_captions
+        self.include_actions = include_actions
+        self.action_data = self._load_actions(action_file)
 
-    def _load_captions(self, caption_file):
-        with open(caption_file, "r") as f:
+    def _load_json(self, json_file):
+        with open(json_file, "r") as f:
             return json.load(f)
 
     def _load_caption_embeddings(self):
         embedding_file = os.path.join(self.data_root, "st5base_embeddings.npz")
         return dict(np.load(embedding_file))
+
+    def _load_actions(self, action_file):
+        if self.include_actions:
+            assert action_file is not None
+            action_data = self._load_json(action_file)
+        else:
+            action_data = None
+        return action_data
 
     def __len__(self):
         return len(self.sample_ids)
@@ -79,10 +93,20 @@ class RobotTrainingDataset(Dataset):
         caption = self.caption_data[cur_name]
         caption_emb = self.caption_embeddings[cur_name].reshape(1, -1)
 
-        if self.include_captions:
-            return {"image": image, "flow": flow, "caption": caption, "caption_emb": caption_emb}
+        # Get the action
+        if self.include_actions:
+            action = self.action_data[cur_name][frame_id]
         else:
-            return {"image": image, "flow": flow, "caption_emb": caption_emb}
+            action = None
+
+        return_dict = {"image": image, "flow": flow, "caption_emb": caption_emb}
+
+        if self.include_captions:
+            return_dict["caption"] = caption
+        if self.include_actions:
+            return_dict["relative_action"] = action
+
+        return return_dict
 
 
 class RobotVisualizationDataset(RobotTrainingDataset):
@@ -301,10 +325,11 @@ def get_transforms(image_size=(128, 128), add_color_jitter=False, mask_args=None
 
 # Example usage
 if __name__ == "__main__":
-    DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
+    DATA_ROOT = "/home/kanchana/data/calvin/task_ABC_D/robot_training"
     CAPTION_FILE = os.path.join(DATA_ROOT, "captions.json")
+    ACTION_FILE = os.path.join(DATA_ROOT, "relative_actions.json")
 
-    dataset = RobotTrainingDataset(DATA_ROOT, CAPTION_FILE, include_captions=True)
+    dataset = RobotTrainingDataset(DATA_ROOT, CAPTION_FILE, ACTION_FILE, include_captions=True, include_actions=True)
 
     for i in range(len(dataset)):
         sample = dataset[i]
@@ -313,6 +338,7 @@ if __name__ == "__main__":
             f"Flow shape: {sample['flow'].shape}, "
             f"Caption: {sample['caption']}, "
             f"Caption Emb: {sample['caption_emb'].shape}, "
+            f"Relatove Action: {sample['relative_action']}, "
         )
         if i == 2:  # Display first 3 samples
             break
