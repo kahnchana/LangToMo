@@ -95,7 +95,7 @@ class RobotTrainingDataset(Dataset):
 
         # Get the action
         if self.include_actions:
-            action = self.action_data[cur_name][frame_id]
+            action = torch.from_numpy(np.array(self.action_data[cur_name][frame_id]), dtype=torch.float32)
         else:
             action = None
 
@@ -338,7 +338,7 @@ if __name__ == "__main__":
             f"Flow shape: {sample['flow'].shape}, "
             f"Caption: {sample['caption']}, "
             f"Caption Emb: {sample['caption_emb'].shape}, "
-            f"Relatove Action: {sample['relative_action']}, "
+            f"Relative Action: {sample['relative_action'].shape}, "
         )
         if i == 2:  # Display first 3 samples
             break
