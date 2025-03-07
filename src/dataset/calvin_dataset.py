@@ -95,7 +95,7 @@ class RobotTrainingDataset(Dataset):
 
         # Get the action
         if self.include_actions:
-            action = torch.from_numpy(np.array(self.action_data[cur_name][frame_id]), dtype=torch.float32)
+            action = torch.from_numpy(np.array(self.action_data[cur_name][frame_id], dtype=np.float32))
         else:
             action = None
 
