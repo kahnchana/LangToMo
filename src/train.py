@@ -177,11 +177,12 @@ def parse_args():
     parser.add_argument("--num-gpu", type=int, default=4)
     parser.add_argument("--dataset", type=str, default="calvin")
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--image-size", type=int, default=128)
-    parser.add_argument("--mask-ratio", type=float, default=0.50)
-    parser.add_argument("--mask-patch", type=int, default=16)
-    parser.add_argument("--crop-ratio", type=float, default=0.70)
-    parser.add_argument("--mask-crop-ratio", type=float, default=0.50)
+    parser.add_argument("--mask-ratio", type=float, default=None)
+    parser.add_argument("--mask-patch", type=int, default=None)
+    parser.add_argument("--crop-ratio", type=float, default=None)
+    parser.add_argument("--mask-crop-ratio", type=float, default=None)
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
@@ -191,6 +192,7 @@ def parse_args():
 def update_config_with_args(config, args):
     config.dataset = args.dataset
     config.learning_rate = args.lr
+    config.num_epochs = args.epochs
     config.image_size = args.image_size
     config.mask_ratio = args.mask_ratio
     config.mask_patch = args.mask_patch
@@ -221,15 +223,16 @@ if __name__ == "__main__":
 
     # Load dataset.
     image_size = (opts.image_size, opts.image_size)
-    mask_opt = {"mask_percentage": opts.mask_ratio, "patch_size": opts.mask_patch}
-    crop_ratio = opts.crop_ratio
-    mask_crop_ratio = opts.mask_crop_ratio
+    if opts.mask_ratio is None:
+        mask_opt = None
+    else:
+        mask_opt = {"mask_percentage": opts.mask_ratio, "patch_size": opts.mask_patch}
     train_transform, val_transform = calvin_dataset.get_joint_transforms(
         image_size=image_size,
         add_color_jitter=False,
         mask_args=mask_opt,
-        crop_ratio=crop_ratio,
-        mask_crop_ratio=mask_crop_ratio,
+        crop_ratio=opts.crop_ratio,
+        mask_crop_ratio=opts.mask_crop_ratio,
     )
     train_dataset = calvin_dataset.RobotTrainingDataset(train_data_root, train_captions, transform=train_transform)
     val_dataset = calvin_dataset.RobotTrainingDataset(val_data_root, val_captions, transform=val_transform)
