@@ -16,7 +16,8 @@ def get_idx(dataset, info_dict, sel_idx=0):
     start = dataset.episode_lookup.tolist().index(idx[0])
     seq_img = dataset[start]["rgb_obs"]["rgb_static"].numpy()
     lang_anno = info_dict["language"]["ann"][sel_idx]
-    return seq_img, lang_anno
+    relative_actions = dataset[start]["actions"]
+    return seq_img, lang_anno, {"relative_actions": relative_actions}
 
 
 def float_im_to_int(img, factor=255, as_float=False):
@@ -95,7 +96,7 @@ if __name__ == "__main__":
     file_name = dataset.abs_datasets_dir / cfg.lang_folder / "auto_lang_ann.npy"
     ds_info = np.load(file_name, allow_pickle=True).item()
 
-    vid_frames, caption = get_idx(dataset, ds_info, sel_idx=0)
+    vid_frames, caption, aux_info = get_idx(dataset, ds_info, sel_idx=0)
     vis_img_all = vis_image_grid(vid_frames, ncols=8)
     vis_img_8 = vis_image_grid(vid_frames[::8,], ncols=8)
 
@@ -108,6 +109,8 @@ if __name__ == "__main__":
     frame_subset = vid_frames[frame_subset_indices]
     frame_subset_tensor = float_im_to_int(frame_subset, factor=1, as_float=True)
     frame_subset_tensor = torch.Tensor(frame_subset_tensor)
+
+    action_subset = aux_info["relative_actions"][frame_subset_indices]
 
     raft_video, _ = transforms(frame_subset_tensor, frame_subset_tensor)
     start_frames = raft_video[:-1]

@@ -9,7 +9,7 @@ from torchvision.models.optical_flow import Raft_Large_Weights, raft_large
 from src.dataset import calvin, flow_utils
 
 
-def get_optical_flow(vid_frames, model, transforms, device, samples=8):
+def get_optical_flow(vid_frames, model, transforms, device, samples=8, aux_info=None):
     total_frames = vid_frames.shape[0]
     frame_subset_indices = np.linspace(0, total_frames - 1, samples + 1).astype(int).tolist()
     frame_subset = vid_frames[frame_subset_indices]
@@ -25,8 +25,9 @@ def get_optical_flow(vid_frames, model, transforms, device, samples=8):
 
     images = frame_subset[:samples]
     flow = flow_tensor.cpu()
+    relative_actions = aux_info["relative_actions"][frame_subset_indices[:-1]].tolist()
 
-    return images, flow
+    return images, flow, relative_actions
 
 
 if __name__ == "__main__":
@@ -35,7 +36,7 @@ if __name__ == "__main__":
     CONFIG_PATH = "../../../calvin/calvin_models/conf"
 
     SPLIT_OPTIONS = ["training", "validation"]
-    SPLIT = SPLIT_OPTIONS[0]
+    SPLIT = SPLIT_OPTIONS[1]
     TASK_OPTIONS = ["D_D", "ABC_D"]
     TASK = TASK_OPTIONS[1]
 
@@ -69,18 +70,21 @@ if __name__ == "__main__":
     raft_transforms = Raft_Large_Weights.DEFAULT.transforms()
 
     dataset_caption_info = {}
+    dataset_action_info = {}
     normalizer = flow_utils.FlowNormalizer(200, 200)
 
     for episode_idx in tqdm.tqdm(range(total_episodes)):
-        vid_frames, caption = calvin.get_idx(dataset, ds_info, sel_idx=episode_idx)
-        images, flow = get_optical_flow(vid_frames, raft_model, raft_transforms, device)
+        vid_frames, caption, aux_info = calvin.get_idx(dataset, ds_info, sel_idx=episode_idx)
 
         cur_name = f"eps_{episode_idx:05d}"
+        images, flow, relative_actions = get_optical_flow(vid_frames, raft_model, raft_transforms, device, aux_info)
         normalized_flow = (flow + 200) / (200 * 2)
         images = calvin.float_im_to_int(images, 1, True)
 
         save_path = f"{SAVE_ROOT}/{cur_name}.npz"
         np.savez(save_path, flow=normalized_flow.numpy(), image=images[:8])
         dataset_caption_info[cur_name] = caption
+        dataset_action_info[cur_name] = relative_actions
 
     json.dump(dataset_caption_info, open(f"{SAVE_ROOT}/captions.json", "w"), indent=2)
+    json.dump(dataset_action_info, open(f"{SAVE_ROOT}/relative_actions.json", "w"), indent=2)
