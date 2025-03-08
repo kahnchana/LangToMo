@@ -18,18 +18,29 @@ from src.model import vit
 @dataclasses.dataclass
 class TrainingConfig:
     image_size: int = 128  # the generated image resolution
-    train_batch_size: int = 4
-    eval_batch_size: int = 4  # how many images to sample during evaluation
+    train_batch_size: int = 128
+    eval_batch_size: int = 128  # how many images to sample during evaluation
     num_gpu: int = 4
     data_root: str = "/home/kanchana/data/calvin/task_ABC_D"
     learning_rate: float = 1e-4
     lr_warmup_steps: int = 500
     num_epochs: int = 100
+    model_size: str = "T"
+    eval_every_n_epochs: int = 1
+    save_model_epochs: int = 10
+    use_image: bool = False
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str = "fp16"  # `no` for float32, `fp16` for automatic mixed precision
+    seed: int = 0
+    output_dir: str = "experiments/policy_001"  # the model name locally and on the HF Hub
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
+    parser.add_argument("--use-image", action="store_true", default=False)
+    parser.add_argument("--output-dir", type=str, default="experiments/policy_001")
+    parser.add_argument("--model-size", type=str, default="T", choices=["T", "B"])
     args = parser.parse_args()
     return args
 
@@ -47,17 +58,22 @@ def update_config_with_args(config: TrainingConfig, opts: argparse.Namespace) ->
 
 def evaluate(config, epoch, dataloader, model, split="train", eval_steps=-1):
     # Calculate loss over the dataset.
+    # eval_steps = 3  # Debug code
     count = 0
     total_loss = 0
-    for idx, batch in enumerate(dataloader):
+    total_steps = min(len(dataloader), abs(eval_steps))
+    for idx, batch in tqdm.tqdm(enumerate(dataloader), total=total_steps):
         flow = batch["flow"]
+        if config.use_image:
+            image = batch["image"]
+            flow = torch.cat([flow, image], dim=1)
         relative_action = batch["relative_action"]
 
         with torch.no_grad():
-            pred_action = model(flow)
+            pred_action = model(flow, return_dict=False)[0]
+            loss = torch.mean((pred_action - relative_action) ** 2)
 
-        loss = torch.mean((pred_action - relative_action) ** 2)
-        total_loss += loss
+        total_loss += loss.item()
         count += 1
 
         if eval_steps > 0 and idx > eval_steps:
@@ -92,20 +108,22 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
     global_step = 0
 
     for epoch in range(config.num_epochs):
-        progress_bar = tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
+        progress_bar = tqdm.tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
         progress_bar.set_description(f"Epoch {epoch}")
 
         for step, batch in enumerate(train_dataloader):
-            # if step > 20:  # Debug Code
+            # if step > 1:  # Debug Code
             #     break
 
-            # image = batch["image"]
             flow = batch["flow"]
+            if config.use_image:
+                image = batch["image"]
+                flow = torch.cat([flow, image], dim=1)
             relative_action = batch["relative_action"]
 
             with accelerator.accumulate(model):
-                pred = model(flow)
-                loss = torch.nn.functional.mse_loss(pred, relative_action)
+                pred_action = model(flow, return_dict=False)[0]
+                loss = torch.nn.functional.mse_loss(pred_action, relative_action)
                 accelerator.backward(loss)
 
                 if accelerator.sync_gradients:
@@ -121,8 +139,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
             global_step += 1
 
         if accelerator.is_main_process:
-            if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
-                train_set_stats = evaluate(config, epoch, train_dataloader, model, split="train", eval_steps=1000)
+            if (epoch + 1) % config.eval_every_n_epochs == 0 or epoch == config.num_epochs - 1:
+                train_set_stats = evaluate(config, epoch, train_dataloader, model, split="train", eval_steps=100)
                 val_set_stats = evaluate(config, epoch, val_dataloader, model, split="val")
                 log_data = {
                     "epoch": epoch,
@@ -130,6 +148,7 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                     **val_set_stats,
                 }
                 accelerator.log(log_data, step=global_step)
+                print(log_data)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 model.module.save_pretrained(config.output_dir)
@@ -159,14 +178,21 @@ if __name__ == "__main__":
         val_root, val_captions, val_actions, transform=transform, include_captions=False, include_actions=True
     )
 
+    num_workers = min(4, config.num_gpu)
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=config.num_gpu
+        train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=num_workers
     )
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=config.num_gpu
+        val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=num_workers
     )
 
-    model = vit.get_vit_tiny(image_size=128, patch_size=16, in_channels=2)
+    channels = 5 if config.use_image else 2
+    if config.model_size == "T":
+        model = vit.get_vit_tiny_hf(image_size=128, patch_size=16, in_channels=channels)
+    elif config.model_size == "B":
+        model = vit.get_vit_base_hf(image_size=128, patch_size=16, in_channels=channels)
+    else:
+        raise ValueError(f"Unknown model size: {config.model_size}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     lr_scheduler = optimization.get_cosine_schedule_with_warmup(
         optimizer=optimizer,
