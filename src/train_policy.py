@@ -5,8 +5,10 @@ This file trains a action policy network conditioned on optical flow inputs (and
 import argparse
 import dataclasses
 import os
+import random
 
 import accelerate
+import numpy as np
 import torch
 import tqdm
 from diffusers import optimization
@@ -27,12 +29,13 @@ class TrainingConfig:
     num_epochs: int = 100
     model_size: str = "T"
     eval_every_n_epochs: int = 1
-    save_model_epochs: int = 10
+    save_model_epochs: int = 1
     use_image: bool = False
     gradient_accumulation_steps: int = 1
     mixed_precision: str = "fp16"  # `no` for float32, `fp16` for automatic mixed precision
     seed: int = 0
     output_dir: str = "experiments/policy_001"  # the model name locally and on the HF Hub
+    debug: bool = False
 
 
 def parse_args():
@@ -41,6 +44,7 @@ def parse_args():
     parser.add_argument("--use-image", action="store_true", default=False)
     parser.add_argument("--output-dir", type=str, default="experiments/policy_001")
     parser.add_argument("--model-size", type=str, default="T", choices=["T", "B"])
+    parser.add_argument("--debug", action="store_true", default=False)
     args = parser.parse_args()
     return args
 
@@ -58,10 +62,11 @@ def update_config_with_args(config: TrainingConfig, opts: argparse.Namespace) ->
 
 def evaluate(config, epoch, dataloader, model, split="train", eval_steps=-1):
     # Calculate loss over the dataset.
-    # eval_steps = 3  # Debug code
+    if config.debug:
+        eval_steps = 3  # Debug code
     count = 0
     total_loss = 0
-    total_steps = min(len(dataloader), abs(eval_steps))
+    total_steps = eval_steps if eval_steps > 0 else len(dataloader)
     for idx, batch in tqdm.tqdm(enumerate(dataloader), total=total_steps):
         flow = batch["flow"]
         if config.use_image:
@@ -112,8 +117,9 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
         progress_bar.set_description(f"Epoch {epoch}")
 
         for step, batch in enumerate(train_dataloader):
-            # if step > 1:  # Debug Code
-            #     break
+            if config.debug:
+                if step > 2:  # Debug Code
+                    break
 
             flow = batch["flow"]
             if config.use_image:
@@ -151,13 +157,19 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                 print(log_data)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
-                model.module.save_pretrained(config.output_dir)
+                model.save_pretrained(config.output_dir)
 
 
 if __name__ == "__main__":
     config = TrainingConfig()
     opts = parse_args()
     config = update_config_with_args(config, opts)
+
+    # Set global seeds.
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    torch.cuda.manual_seed_all(config.seed)  # If using CUDA
 
     CAPTION_FILE = f"{config.data_root}/captions.json"
     ACTION_FILE = f"{config.data_root}/relative_actions.json"
