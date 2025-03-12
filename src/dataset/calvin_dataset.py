@@ -19,6 +19,7 @@ class RobotTrainingDataset(Dataset):
         frames_per_episode=8,
         include_captions=False,
         include_actions=False,
+        include_prev_flow: bool = False,
     ):
         """
         Args:
@@ -30,6 +31,7 @@ class RobotTrainingDataset(Dataset):
             frames_per_episode (int): 8 by default
             include_captions (bool): Whether to include captions in the output.
             include_actions (bool): Whether to include actions in the output.
+            include_prev_flow (bool): Whether to include previous flow in the output.
         """
         self.data_root = data_root
         self.caption_data = self._load_json(caption_file)
@@ -42,6 +44,8 @@ class RobotTrainingDataset(Dataset):
         self.include_captions = include_captions
         self.include_actions = include_actions
         self.action_data = self._load_actions(action_file)
+        self.include_prev_flow = include_prev_flow
+        self.prev_flow_random = 0.5
 
     def _load_json(self, json_file):
         with open(json_file, "r") as f:
@@ -83,10 +87,21 @@ class RobotTrainingDataset(Dataset):
         image = datum["image"][frame_id]
         flow = datum["flow"][frame_id]
 
+        output_seq = [image, flow]
+        if self.include_prev_flow:
+            prev_flow = datum["flow"][min(0, frame_id - 1)]
+            pick = random.random() < self.prev_flow_random
+            if pick and frame_id > 0:
+                prev_flow = datum["flow"][frame_id - 1]
+            else:
+                prev_flow = np.zeros_like(flow)
+            output_seq.append(prev_flow)
+
         # Apply transformations if any
         if self.transform is not None:
-            image, flow = self.transform((image, flow))
-        if self.target_transform is not None:
+            output_seq = self.transform(tuple(output_seq))
+
+        if self.target_transform is not None:  # to be depracated
             flow = self.target_transform(flow)
 
         # Get the caption
@@ -99,12 +114,15 @@ class RobotTrainingDataset(Dataset):
         else:
             action = None
 
-        return_dict = {"image": image, "flow": flow, "caption_emb": caption_emb}
+        return_dict = {"image": output_seq[0], "flow": output_seq[1], "caption_emb": caption_emb}
 
         if self.include_captions:
             return_dict["caption"] = caption
         if self.include_actions:
             return_dict["relative_action"] = action
+        if self.include_prev_flow:
+            assert len(output_seq) == 3, f"No prev_flow in output sequence of length {len(output_seq)}"
+            return_dict["prev_flow"] = output_seq[2]
 
         return return_dict
 
@@ -198,13 +216,13 @@ class RandomCropResize:
         self.crop_ratio = crop_ratio
         self.resize_size = resize_size
 
-    def __call__(self, image, flow):
+    def __call__(self, inputs):
         """
-        image: Tensor (C, H, W)
-        flow: Tensor (2, H, W)  -> (u, v) flow field
+        inputs: Tuple (image, flow, ...) with image (C, H, W) and flow (2, H, W)
 
         Returns cropped and resized image, flow
         """
+        image = inputs[0]
         orig_w, orig_h = image.shape[1:]
         crop_h, crop_w = [int(self.crop_ratio * x) for x in (orig_h, orig_w)]
 
@@ -216,56 +234,50 @@ class RandomCropResize:
         x1 = random.randint(0, orig_w - crop_w)
         y1 = random.randint(0, orig_h - crop_h)
 
-        # Crop image
-        image = image[:, y1 : y1 + crop_h, x1 : x1 + crop_w]
+        transformed_inputs = []
+        # Crop-resize image & flow tensors.
+        # NOTE: For resizing flow field (bilinear interpolation), flow in normalized, no scaling required.
+        for tensor in inputs:
+            modified_tensor = tensor[:, y1 : y1 + crop_h, x1 : x1 + crop_w]
+            modified_tensor = transforms.functional.resize(modified_tensor, self.resize_size)
+            transformed_inputs.append(modified_tensor)
 
-        # Crop flow field
-        flow = flow[:, y1 : y1 + crop_h, x1 : x1 + crop_w]
-
-        # Resize image
-        image = transforms.functional.resize(image, self.resize_size)
-
-        # Resize flow field (bilinear interpolation). Flow normalized, no scaling required.
-        flow = transforms.functional.resize(flow, self.resize_size)
-
-        return image, flow
+        return tuple(transformed_inputs)
 
 
 def get_joint_transforms(
     image_size=(128, 128), add_color_jitter=False, mask_args=None, crop_ratio=None, mask_crop_ratio=None
 ):
     """
-    Returns a single transform that takes (image, flow) and applies the same
+    Returns a single transform that takes (image, flow, more_flow) and applies the same
     augmentations while ensuring consistency.
     """
     # Convert numpy to torch tensor if necessary.
-    tensor_transform = transforms.Lambda(lambda x: (torch.from_numpy(x[0]), torch.from_numpy(x[1])))
+    tensor_transform = transforms.Lambda(lambda x: tuple([torch.from_numpy(x_i) for x_i in x]))
 
     # Crop Resize Transform.
     crop_resize_transform = transforms.Lambda(
-        lambda x: (RandomCropResize(crop_ratio=crop_ratio, resize_size=image_size)(x[0], x[1]))
+        lambda x: (RandomCropResize(crop_ratio=crop_ratio, resize_size=image_size)(x))
     )
 
     # Spatial transformation (resize applied to both image and flow).
-    resize_transform = transforms.Lambda(
-        lambda x: (transforms.Resize(image_size)(x[0]), transforms.Resize(image_size)(x[1]))
-    )
+    resize_transform = transforms.Lambda(lambda x: tuple([transforms.Resize(image_size)(x_i) for x_i in x]))
 
     # Color jitter (applied only to the image).
     color_jitter = transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
-    color_transform = transforms.Lambda(lambda x: (color_jitter(x[0]), x[1]))  # Only modifies image
+    color_transform = transforms.Lambda(lambda x: (color_jitter(x[0]), *x[1:]))  # Only modifies image
 
     # Apply masking if specified.
-    mask_transform = transforms.Lambda(lambda x: (RandomPatchMasking(**mask_args)(x[0]), x[1]))
+    mask_transform = transforms.Lambda(lambda x: (RandomPatchMasking(**mask_args)(x[0]), *x[1:]))
 
     # Crop of masking transform.
-    def crop_or_mask(pair):
+    def crop_or_mask(input_sequence):
         pick = random.random() < mask_crop_ratio
         if pick:
-            pair = resize_transform(pair)
-            return mask_transform(pair)
+            input_sequence = resize_transform(input_sequence)
+            return mask_transform(input_sequence)
         else:
-            return crop_resize_transform(pair)
+            return crop_resize_transform(input_sequence)
 
     crop_or_mask_transform = transforms.Lambda(crop_or_mask)
 

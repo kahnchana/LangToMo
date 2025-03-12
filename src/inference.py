@@ -5,14 +5,14 @@ from src.model import diffusion
 
 
 # Define the inference function
-def run_inference(model, start_flow, image_cond, text_cond, num_inference_steps=50):
+def run_inference(model, start_flow, vis_cond, text_cond, num_inference_steps=50):
     """
     Run inference using a DDIM scheduler.
 
     Args:
         model: The custom model to be used for inference.
         start_flow: The noisy latent flow input.
-        image_cond: Image condition input.
+        vis_cond: Visual condition inputs.
         text_cond: Text condition input.
         num_inference_steps: Number of DDIM steps to run (default: 50).
 
@@ -34,7 +34,7 @@ def run_inference(model, start_flow, image_cond, text_cond, num_inference_steps=
         # Prepare the model inputs
         with torch.no_grad():
             # Predict the noise (epsilon) using the model
-            model_input = torch.concat([latents, image_cond], dim=1)
+            model_input = torch.concat([latents, vis_cond], dim=1)
             time_step = torch.ones(latents.shape[0], dtype=torch.int64, device=latents.device) * t
             predicted_noise = model(model_input, time_step, text_cond, return_dict=False)[0]
 

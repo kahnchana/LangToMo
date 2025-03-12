@@ -37,6 +37,7 @@ class TrainingConfig:
     mask_patch: int = 16
     crop_ratio: float = 0.7
     mask_crop_ratio: float = 0.5
+    prev_flow: bool = False
     dataset: str = "calvin"
     pretrained: str = None
 
@@ -44,16 +45,29 @@ class TrainingConfig:
 def evaluate(config, epoch, dataloader, model, split="train"):
     # Sample some images from random noise (this is the backward diffusion process).
     # The default pipeline output type is `List[PIL.Image]`
-    for batch in dataloader:
+    RUN_COUNT = 50
+    count = 0
+    total_loss = 0
+    for idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
         clean_flow = batch["flow"]
         image_cond = batch["image"]
         text_cond = batch["caption_emb"]
         # text_cond = torch.ones_like(text_cond)  # Ablate text condition.
         start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)  # random noise
+        if config.prev_flow:
+            vis_cond = torch.cat([image_cond, batch["prev_flow"]], dim=1)
 
-        generated_flow = inference.run_inference(model, start_flow, image_cond, text_cond, num_inference_steps=50)
+        generated_flow = inference.run_inference(model, start_flow, vis_cond, text_cond, num_inference_steps=50)
+        loss = torch.mean((generated_flow - clean_flow) ** 2)
 
-        break  # get single example for visualization
+        total_loss += loss.item()
+        count += 1
+
+        if True:  # split == "train":
+            if idx > RUN_COUNT:
+                break
+
+    total_loss /= count
 
     # Make a grid out of the images.
     vis_count = 4
@@ -78,7 +92,7 @@ def evaluate(config, epoch, dataloader, model, split="train"):
     vis_joint = [make_image_grid([x, y], rows=1, cols=2) for x, y in zip(vis_gt_flow, vis_pred_flow)]
 
     # Images to log.
-    return {f"{split}/images": [wandb.Image(x) for x in vis_joint]}
+    return {f"{split}/images": [wandb.Image(x) for x in vis_joint], f"{split}_loss": total_loss}
 
 
 def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, val_dataloader, lr_scheduler):
@@ -133,7 +147,10 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, val_
             # Add noise to the clean flow according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
-            model_inputs = torch.concat([noisy_flow, image_condition], dim=1)
+            model_inputs = [noisy_flow, image_condition]
+            if config.prev_flow:
+                model_inputs.append(batch["prev_flow"])
+            model_inputs = torch.concat(model_inputs, dim=1)
 
             with accelerator.accumulate(model):
                 # Predict the noise residual
@@ -183,6 +200,7 @@ def parse_args():
     parser.add_argument("--mask-patch", type=int, default=None)
     parser.add_argument("--crop-ratio", type=float, default=None)
     parser.add_argument("--mask-crop-ratio", type=float, default=None)
+    parser.add_argument("--prev-flow", action="store_true", default=False)
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="test_002")
     args = parser.parse_args()
@@ -197,6 +215,7 @@ def update_config_with_args(config, args):
     config.mask_ratio = args.mask_ratio
     config.mask_patch = args.mask_patch
     config.pretrained = args.pretrained
+    config.prev_flow = args.prev_flow
     config.output_dir = f"experiments/{opts.output_dir}"
     return config
 
@@ -234,8 +253,12 @@ if __name__ == "__main__":
         crop_ratio=opts.crop_ratio,
         mask_crop_ratio=opts.mask_crop_ratio,
     )
-    train_dataset = calvin_dataset.RobotTrainingDataset(train_data_root, train_captions, transform=train_transform)
-    val_dataset = calvin_dataset.RobotTrainingDataset(val_data_root, val_captions, transform=val_transform)
+    train_dataset = calvin_dataset.RobotTrainingDataset(
+        train_data_root, train_captions, transform=train_transform, include_prev_flow=config.prev_flow
+    )
+    val_dataset = calvin_dataset.RobotTrainingDataset(
+        val_data_root, val_captions, transform=val_transform, include_prev_flow=config.prev_flow
+    )
 
     # Setup dataloader.
     train_dataloader = torch.utils.data.DataLoader(
@@ -246,7 +269,7 @@ if __name__ == "__main__":
     )
 
     # Setup model.
-    unet_model = diffusion.get_conditional_unet(config.image_size, opts.pretrained)
+    unet_model = diffusion.get_conditional_unet(config.image_size, opts.pretrained, use_prev_flow=opts.prev_flow)
 
     # Noise scheduler, optimizer and LR scheduler.
     noise_scheduler = DDPMScheduler(num_train_timesteps=1000)
