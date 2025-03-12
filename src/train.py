@@ -57,8 +57,9 @@ def evaluate(config, epoch, dataloader, model, split="train"):
         if config.prev_flow:
             vis_cond = torch.cat([image_cond, batch["prev_flow"]], dim=1)
 
-        generated_flow = inference.run_inference(model, start_flow, vis_cond, text_cond, num_inference_steps=50)
-        loss = torch.mean((generated_flow - clean_flow) ** 2)
+        generated_flow = inference.run_inference(model, start_flow, vis_cond, text_cond, num_inference_steps=25)
+        with torch.no_grad():
+            loss = torch.mean((generated_flow - clean_flow) ** 2)
 
         total_loss += loss.item()
         count += 1
@@ -126,7 +127,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, val_
         progress_bar.set_description(f"Epoch {epoch}")
 
         for step, batch in enumerate(train_dataloader):
-            # if step > 20:  # Debug Code
+            # if step > 10:  # Debug Code
             #     break
 
             # Load data.
