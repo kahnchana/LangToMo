@@ -140,7 +140,6 @@ class OpenXDataset:
             b = tfds.builder_from_directory(builder_dir=dataset2path(dataset))
             display_key, lang_key, in_obs = self.get_dataset_keys(builder=b)
             ds = b.as_dataset(split=self.split)
-            dataset_dict[dataset] = {"dataset": ds}
 
             def episode2steps(episode):
                 return episode["steps"]
