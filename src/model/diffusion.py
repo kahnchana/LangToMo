@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 
-def get_conditional_unet(image_size=128, pretrained=None, use_prev_flow=False):
+def get_conditional_unet(image_size=128, pretrained=None, use_prev_flow=False, condition_dim=768):
     if pretrained is not None:
         model = diffusers.UNet2DConditionModel.from_pretrained(pretrained, use_safetensors=True)
         return model
@@ -33,7 +33,7 @@ def get_conditional_unet(image_size=128, pretrained=None, use_prev_flow=False):
             "UpBlock2D",
             "UpBlock2D",
         ),
-        cross_attention_dim=768,  # Dimension of the conditional embedding (e.g., text embeddings)
+        cross_attention_dim=condition_dim,  # Dimension of the conditional embedding (e.g., text embeddings)
     )
 
     return model
