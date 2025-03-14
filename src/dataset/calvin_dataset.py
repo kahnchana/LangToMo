@@ -94,7 +94,7 @@ class RobotTrainingDataset(Dataset):
             if pick and frame_id > 0:
                 prev_flow = datum["flow"][frame_id - 1]
             else:
-                prev_flow = np.zeros_like(flow)
+                prev_flow = np.ones_like(flow) * 0.5
             output_seq.append(prev_flow)
 
         # Apply transformations if any
