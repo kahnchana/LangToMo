@@ -17,7 +17,7 @@ DATASETS = [
     "viola",
     "berkeley_autolab_ur5",
     "toto",
-    "language_table",
+    # "language_table",  # Removed temporariliy - need to cache language embeddings (or generate online)
     "columbia_cairlab_pusht_real",
     "stanford_kuka_multimodal_dataset_converted_externally_to_rlds",
     "nyu_rot_dataset_converted_externally_to_rlds",
@@ -79,19 +79,6 @@ def dataset2path(dataset_name, root_dir="/nfs/mercedes/hdd1/rt-x"):
     return f"{root_dir}/{dataset_name}/{version}"
 
 
-def decode_inst_bytes(inst, dataset="language_table", in_obs=False, lang_key="instruction"):
-    """Utility to decode encoded language instruction"""
-    if in_obs:
-        inst = inst["observation"]
-    inst = inst[lang_key]
-    inst_tensor = tf.convert_to_tensor([inst])
-    if dataset == "language_table":
-        inst_array = tf.boolean_mask(inst_tensor, inst_tensor != 0)
-        return tf.strings.unicode_encode(inst_array, output_encoding="UTF-8")
-    else:
-        return inst_tensor[0]
-
-
 def as_gif(images, path="temp.gif", duration=100):
     # Render the images as the gif:
     images[0].save(path, save_all=True, append_images=images[1:], duration=duration, loop=0)
@@ -103,8 +90,8 @@ class OpenXDataset:
     def __init__(self, root_dir="/nfs/mercedes/hdd1/rt-x", datasets=DATASETS, split="train"):
         self.dataset_list = datasets
         self.root_dir = root_dir
-        self.split = split
-        self.dataset_dict = self.init_datasets()
+        self.split = split.split("[")[0]
+        self.dataset_dict, self.dataset_sizes = self.init_datasets()
 
     @staticmethod
     def get_dataset_keys(builder):
@@ -132,23 +119,51 @@ class OpenXDataset:
                 in_obs = True
                 break
 
-        return display_key, lang_key, in_obs
+        embedding_options = ["natural_language_embedding", "language_embedding"]
+        embed_key = None
+        for option in embedding_options:
+            if option in builder.info.features["steps"]:
+                embed_key = option
+                assert not in_obs, "mis-match in_obs"
+                break
+            elif option in builder.info.features["steps"]["observation"]:
+                embed_key = option
+                assert in_obs, "mis-match in_obs"
+                break
+
+        return display_key, lang_key, in_obs, embed_key
+
+    @staticmethod
+    def decode_inst_bytes(inst, dataset="language_table", in_obs=False, lang_key="instruction"):
+        """Utility to decode encoded language instruction"""
+        if in_obs:
+            inst = inst["observation"]
+        inst = inst[lang_key]
+        inst_tensor = tf.convert_to_tensor([inst])
+        if dataset == "language_table":
+            inst_array = tf.boolean_mask(inst_tensor, inst_tensor != 0)
+            return tf.strings.unicode_encode(inst_array, output_encoding="UTF-8")
+        else:
+            return inst_tensor[0]
 
     def init_datasets(self):
         dataset_dict = {}
+        dataset_sizes = {}
         for dataset in self.dataset_list:
             b = tfds.builder_from_directory(builder_dir=dataset2path(dataset))
-            display_key, lang_key, in_obs = self.get_dataset_keys(builder=b)
+            display_key, lang_key, in_obs, embed_key = self.get_dataset_keys(builder=b)
+            dataset_sizes[dataset] = b.info.splits[f"{self.split}"].num_examples
             ds = b.as_dataset(split=self.split)
 
             def episode2steps(episode):
                 return episode["steps"]
 
             def step_map_fn(step):
-                decode_func = partial(decode_inst_bytes, dataset=dataset, in_obs=in_obs, lang_key=lang_key)
+                decode_func = partial(self.decode_inst_bytes, dataset=dataset, in_obs=in_obs, lang_key=lang_key)
                 return {
                     "observation": tf.image.resize(step["observation"][display_key], (128, 128)),
                     "command": decode_func(step),
+                    "language_embedding": step["observation"][embed_key] if in_obs else step[embed_key],
                 }
 
             # convert RLDS episode dataset to individual steps & reformat
@@ -157,21 +172,22 @@ class OpenXDataset:
 
             dataset_dict[dataset] = ds
 
-        return dataset_dict
+        return dataset_dict, dataset_sizes
 
 
 if __name__ == "__main__":
-    openx_dataset = OpenXDataset(datasets=DATASETS, split="train[:10]")  # Load only 10 samples.
+    openx_dataset_instance = OpenXDataset(datasets=DATASETS, split="train[:10]")  # Load only 10 samples.
 
-    ds = openx_dataset.dataset_dict["language_table"]
+    # ds = openx_dataset_instance.dataset_dict["language_table"]
+    # step_obs = next(iter(ds))
+    # print(f"Caption: {step_obs['command'].numpy().decode('utf-8')}")
+    # print(f"Obs shape: {step_obs['observation'].shape}")
+    # vis_image = Image.fromarray(step_obs["observation"].numpy().astype(np.uint8))
+
+    ds = openx_dataset_instance.dataset_dict["fractal20220817_data"]
     step_obs = next(iter(ds))
     print(f"Caption: {step_obs['command'].numpy().decode('utf-8')}")
     print(f"Obs shape: {step_obs['observation'].shape}")
-    vis_image = Image.fromarray(step_obs["observation"].numpy().astype(np.uint8))
-
-    ds = openx_dataset.dataset_dict["fractal20220817_data"]
-    step_obs = next(iter(ds))
-    print(f"Caption: {step_obs['command'].numpy().decode('utf-8')}")
-    print(f"Obs shape: {step_obs['observation'].shape}")
+    print(f"Embed shape: {step_obs['language_embedding'].shape}")
 
     vis_image = Image.fromarray(step_obs["observation"].numpy().astype(np.uint8))
