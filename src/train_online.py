@@ -295,7 +295,6 @@ def train_loop(config):
     # Define evaluation function.
     eval_func = partial(evaluate, flow_model=flow_model, flow_transform=flow_transform, config=config)
 
-    global_step = 0
     # Now you train the model
     progress_bar = tqdm(total=config.num_train_steps, disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Training")
@@ -342,7 +341,7 @@ def train_loop(config):
             optimizer.zero_grad()
 
         progress_bar.update(1)
-        logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
+        logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": step}
         progress_bar.set_postfix(**logs)
 
         # Run evaluation and visualization.
@@ -356,7 +355,7 @@ def train_loop(config):
                     print(eval_log_data)
                 # Log to W&B
 
-        accelerator.log({**logs, **eval_log_data}, step=global_step)
+        accelerator.log({**logs, **eval_log_data}, step=step)
 
         # Save the model.
         if accelerator.is_main_process:
