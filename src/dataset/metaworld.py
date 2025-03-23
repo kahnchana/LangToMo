@@ -103,4 +103,22 @@ if __name__ == "__main__":
         model = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
         # Text descriptions for task labels.
         command_dict = {
-            "assembly": "Asse
+            "assembly": "Assemble components by fitting them together.",
+            "basketball": "Throw a ball into a basket.",
+            "button press": "Press a button from the side.",
+            "button press topdown": "Press a button from above.",
+            "door close": "Close a door by pushing it shut.",
+            "door open": "Open a door by pulling it open.",
+            "drawer open": "Open a drawer by pulling it out.",
+            "faucet close": "Turn a faucet handle to stop water flow.",
+            "faucet open": "Turn a faucet handle to start water flow.",
+            "hammer": "Use a hammer to drive a nail into a surface.",
+            "handle press": "Press down a handle to operate a mechanism.",
+            "push": "Move an object by applying force to slide it.",
+            "shelf place": "Place an object onto a shelf.",
+        }
+        embedding_dict = {}
+        for task, sentence in command_dict.items():
+            embedding = model([sentence])
+            embedding_dict[task] = embedding
+        np.savez(f"{DATA_ROOT}/use_embeddings.npz", **embedding_dict)
