@@ -39,6 +39,31 @@ def get_conditional_unet(image_size=128, pretrained=None, use_prev_flow=False, c
     return model
 
 
+def get_conditional_unet_3d(image_size=128, frame_count=8, pretrained=None, condition_dim=768):
+    """WIP: currently not working"""
+    if pretrained is not None:
+        model = diffusers.UNet3DConditionModel.from_pretrained(pretrained, use_safetensors=True)
+        return model
+
+    in_channels = 5
+    cross_attn_down = "CrossAttnDownBlockSpatioTemporal"  # CrossAttnDownBlockSpatioTemporal, CrossAttnDownBlock3D
+    cross_attn_up = "CrossAttnUpBlockSpatioTemporal"  # CrossAttnUpBlockSpatioTemporal, CrossAttnUpBlock3D
+    model = diffusers.UNet3DConditionModel(
+        sample_size=(frame_count, image_size, image_size),
+        in_channels=in_channels,  # = 5
+        out_channels=2,  # Predict optical flow
+        block_out_channels=(64, 128, 256, 512),
+        down_block_types=("DownBlock3D", "DownBlock3D", "DownBlock3D", cross_attn_down),
+        up_block_types=(cross_attn_up, "UpBlock3D", "UpBlock3D", "UpBlock3D"),
+        # down_block_types=(cross_attn_down, cross_attn_down, cross_attn_down, "DownBlock3D"),
+        # up_block_types=("UpBlock3D", cross_attn_up, cross_attn_up, cross_attn_up),
+        cross_attention_dim=condition_dim,
+        norm_num_groups=8,
+    )
+
+    return model
+
+
 if __name__ == "__main__":
     DATA_ROOT = "/home/kanchana/data/calvin/task_D_D/robot_training"
     IMAGE_SIZE = 128
@@ -46,17 +71,39 @@ if __name__ == "__main__":
     datum_file = f"{DATA_ROOT}/eps_00000.npz"
     datum = np.load(datum_file)
 
-    unet_model = get_conditional_unet(IMAGE_SIZE).cuda()
+    use_3D = False
 
-    # image = torch.Tensor(datum["image"]).cuda()
-    image = torch.ones((8, 3, IMAGE_SIZE, IMAGE_SIZE)).cuda()
-    flow = torch.ones((8, 2, IMAGE_SIZE, IMAGE_SIZE)).cuda()
-    text_emb = torch.ones((8, 1, 768)).cuda()
-    time_step = 0
+    if not use_3D:
+        unet_model = get_conditional_unet(IMAGE_SIZE).cuda()
 
-    model_input = torch.concat([image, flow], dim=1)
+        image = torch.ones((8, 3, IMAGE_SIZE, IMAGE_SIZE)).cuda()
+        flow = torch.ones((8, 2, IMAGE_SIZE, IMAGE_SIZE)).cuda()
+        text_emb = torch.ones((8, 1, 768)).cuda()
+        time_step = 0
 
-    with torch.no_grad():
-        pred = unet_model(model_input, time_step, text_emb).sample
+        model_input = torch.concat([image, flow], dim=1)
 
-    print(f"pred shape: {pred.shape}")
+        with torch.no_grad():
+            pred = unet_model(model_input, time_step, text_emb).sample
+
+        print(f"pred shape: {pred.shape}")
+
+    else:  # TODO: WIP for 3D
+        IMAGE_SIZE = 128
+        FRAMES = 8
+        unet_model = get_conditional_unet_3d(IMAGE_SIZE, FRAMES).cuda()
+
+        image = torch.ones((4, 3, FRAMES, IMAGE_SIZE, IMAGE_SIZE)).cuda()
+        flow = torch.ones((4, 2, FRAMES, IMAGE_SIZE, IMAGE_SIZE)).cuda()
+        text_emb = torch.ones((4, 1, 512)).cuda()
+        time_step = torch.tensor([0]).cuda()
+
+        model_input = torch.concat([image, flow], dim=1)
+
+        with torch.no_grad():
+            # pred = unet_model(model_input, time_step, text_emb).sample
+            pred = unet_model(model_input, timestep=time_step, encoder_hidden_states=text_emb).sample
+
+        print(f"pred shape: {pred.shape}")
+
+    breakpoint()
