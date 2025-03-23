@@ -464,9 +464,10 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
 
 
 if __name__ == "__main__":
-    traj_dataset = OpenXTrajectoryDataset(datasets=openx_dataset.DATASETS, split="train[:10]", trajectory_length=10)
+    # traj_dataset = OpenXTrajectoryDataset(datasets=openx_dataset.DATASETS, split="train[:10]", trajectory_length=10)
+    dataset_name = "bridge"
+    traj_dataset = OpenXTrajectoryDataset(datasets=[dataset_name], split="train[:10]", trajectory_length=10)
 
-    dataset_name = "fractal20220817_data"
     dataset_size = traj_dataset.dataset_sizes[dataset_name]
     cur_dataset = DatasetIterator(traj_dataset.dataset_dict[dataset_name], dataset_size)
     trajectory = next(cur_dataset)
@@ -475,9 +476,9 @@ if __name__ == "__main__":
     print(f"Obs shape: {trajectory['observation'].shape}")
     print(f"Embed shape: {trajectory['caption_embedding'].shape}")
 
-    val_dataset = OpenXTrajectoryDataset(datasets=["berkeley_autolab_ur5"], split="test[:10]", trajectory_length=10)
-    val_size = val_dataset.dataset_sizes["berkeley_autolab_ur5"]
-    val_ds = DatasetIterator(val_dataset.dataset_dict["berkeley_autolab_ur5"], val_size)
+    val_dataset = OpenXTrajectoryDataset(datasets=[dataset_name], split="test[:10]", trajectory_length=10)
+    val_size = val_dataset.dataset_sizes[dataset_name]
+    val_ds = DatasetIterator(val_dataset.dataset_dict[dataset_name], val_size)
     val_trajectory = next(val_ds)
 
     print(f"Caption: {val_trajectory['command'].decode('utf-8')}")

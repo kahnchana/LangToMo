@@ -74,6 +74,8 @@ def dataset2path(dataset_name, root_dir="/nfs/mercedes/hdd1/rt-x"):
         version = "1.0.0"
     elif dataset_name == "language_table":
         version = "0.0.1"
+    elif dataset_name == "bridge":
+        return "/nfs/ws3/hdd1/kanchana/data/bridge/0.1.0"
     else:
         version = "0.1.0"
     return f"{root_dir}/{dataset_name}/{version}"
