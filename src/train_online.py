@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 
 import wandb
 from src import inference
-from src.dataset import calvin_dataset, flow_utils, openx_dataset
+from src.dataset import calvin_dataset, flow_utils
 from src.dataset import openx_trajectory_dataset as openx_traj
 from src.model import diffusion
 
@@ -29,6 +29,7 @@ class TrainingConfig:
     num_gpu: int = 4
     port: int = 8807
     dataset: str = "calvin"
+    sub_datasets: list = dataclasses.field(default_factory=lambda: ["calvin"])
     learning_rate: float = 1e-4
     num_train_steps: int = 300_000
     evaluate_interval_steps: int = 2_500
@@ -52,6 +53,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
     parser.add_argument("--dataset", type=str, default="calvin")
+    parser.add_argument("--sub-datasets", type=str, nargs="+", default=["bridge"], help="List of sub-datasets")
     parser.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
     parser.add_argument("--steps", type=int, default=300_000, dest="num_train_steps")
     parser.add_argument("--seed", type=int, default=0)
@@ -84,17 +86,17 @@ def get_dataset(config, accelerator=None):
     # Load dataset.
     if config.dataset == "openx":
         traj_len = 3
+        sub_datasets = config.sub_datasets
         traj_dataset = openx_traj.OpenXTrajectoryDataset(
-            datasets=openx_dataset.DATASETS, split="train", trajectory_length=traj_len, infinite_repeat=True
+            datasets=sub_datasets, split="train", trajectory_length=traj_len, infinite_repeat=True
         )
-        dataset_name = "fractal20220817_data"
-        dataset_size = 3611976
-        # dataset_size = traj_dataset.dataset_sizes[dataset_name]
+        dataset_name = sub_datasets[0]  # TODO: add support for multiple datasets
+        dataset_size = traj_dataset.dataset_sizes[dataset_name]
         dataset = openx_traj.DatasetIterator(
             traj_dataset.dataset_dict[dataset_name], length=dataset_size, get_command=False
         )
 
-        val_name = "berkeley_autolab_ur5"
+        val_name = sub_datasets[0]  # TODO: add support for multiple datasets
         val_dataset = openx_traj.OpenXTrajectoryDataset(datasets=[val_name], split="test", trajectory_length=traj_len)
         val_size = val_dataset.dataset_sizes[val_name]
         val_dataset = openx_traj.DatasetIterator(val_dataset.dataset_dict[val_name], length=val_size, get_command=False)
