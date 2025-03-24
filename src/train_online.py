@@ -320,7 +320,7 @@ def train_loop(config):
             in_channels=in_channels,
             out_channels=out_channels,
             condition_dim=512,
-            size="S",
+            size="B",
         )
 
     # Setup flow model.
