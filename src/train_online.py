@@ -30,6 +30,7 @@ class TrainingConfig:
     port: int = 8807
     dataset: str = "calvin"
     sub_datasets: list = dataclasses.field(default_factory=lambda: ["calvin"])
+    val_sub_datasets: list = dataclasses.field(default_factory=lambda: ["bridge"])
     learning_rate: float = 1e-4
     num_train_steps: int = 300_000
     evaluate_interval_steps: int = 2_500
@@ -56,6 +57,7 @@ def parse_args():
     parser.add_argument("--num-gpu", type=int, default=4)
     parser.add_argument("--dataset", type=str, default="calvin")
     parser.add_argument("--sub-datasets", type=str, nargs="+", default=["bridge"], help="List of sub-datasets")
+    parser.add_argument("--val-sub-datasets", type=str, nargs="+", default=["bridge"], help="List of val sub-datasets")
     parser.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
     parser.add_argument("--steps", type=int, default=300_000, dest="num_train_steps")
     parser.add_argument("--seed", type=int, default=0)
@@ -101,7 +103,7 @@ def get_dataset(config, accelerator=None):
             traj_dataset.dataset_dict[dataset_name], length=dataset_size, get_command=False
         )
 
-        val_name = sub_datasets[0]  # TODO: add support for multiple datasets
+        val_name = config.val_sub_datasets[0]  # TODO: add support for multiple datasets
         val_dataset = openx_traj.OpenXTrajectoryDataset(
             root_dir=data_root, datasets=[val_name], split="train", trajectory_length=traj_len
         )
