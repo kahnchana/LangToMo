@@ -2,13 +2,13 @@ import random
 from glob import glob
 
 import numpy as np
+import torch
 from einops import rearrange
 from PIL import Image
-from torch.utils.data import Dataset
 from torchvideotransforms import video_transforms, volume_transforms
 
 
-class SequentialDatasetv2(Dataset):
+class MetaworldDataset(torch.utils.data.Dataset):
     def __init__(self, path, sample_per_seq=9, target_size=(128, 128), frameskip=None, randomcrop=True, captions=False):
         self.sample_per_seq = sample_per_seq
         self.frame_skip = frameskip
@@ -39,7 +39,6 @@ class SequentialDatasetv2(Dataset):
                     volume_transforms.ClipToTensor(),
                 ]
             )
-        print("Done")
 
     def get_samples(self, idx):
         seq = self.sequences[idx]
@@ -66,37 +65,57 @@ class SequentialDatasetv2(Dataset):
     def __getitem__(self, idx):
         samples = self.get_samples(idx)
         images = self.transform([Image.open(s) for s in samples])  # [c f h w]
-        x_cond = images[:, 0]  # first frame
-        x = rearrange(images[:, 1:], "c f h w -> f c h w")  # all other frames
+        x = rearrange(images, "c f h w -> f c h w")
         task = self.tasks[idx]
         task_embedding = self.embedding_dict[task]
 
+        return_dic = {"observation": x, "caption_embedding": task_embedding}
         if self.get_captions:
-            return x, x_cond, task_embedding, task
-        else:
-            return x, x_cond, task_embedding
+            return_dic["caption"] = task
+
+        return return_dic
+
+
+class InfiniteWrapper(torch.utils.data.IterableDataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __iter__(self):
+        while True:
+            for i in range(len(self.dataset)):
+                yield self.dataset[i]
 
 
 if __name__ == "__main__":
     DATA_ROOT = "/home/kanchana/data/metaworld"
-    dataset = SequentialDatasetv2(DATA_ROOT, captions=True)
-    target_frames, init_frame, text_embedding, text_caption = dataset[0]
-    print(f"Target frames: {target_frames.shape}\nInit frame: {init_frame.shape}\nText command: {text_embedding.shape}")
-    print(f"Text caption: {text_caption}")
+    dataset = MetaworldDataset(DATA_ROOT, captions=True)
+    video_frames, text_embedding, text_caption = dataset[0]
+    print(f"Target frames: {dataset[0]['observation'].shape}\nText command: {dataset[0]['caption_embedding'].shape}")
+    print(f"Text caption: {dataset[0]['caption']}")
 
-    from IPython import display
+    dataset = MetaworldDataset(DATA_ROOT, captions=False)
+    dataset = InfiniteWrapper(dataset)
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=2, shuffle=False, num_workers=0, pin_memory=True, drop_last=True
+    )
+    for batch in dataloader:
+        print(f"Target frames: {batch['observation'].shape}\nText command: {batch['caption_embedding'].shape}")
+        break
 
-    def as_gif(images, path="temp.gif", duration=100):
-        # Render the images as the gif:
-        images[0].save(path, save_all=True, append_images=images[1:], duration=duration, loop=0)
-        return open(path, "rb").read()
+    VIS_GIF = False
+    if VIS_GIF:
+        from IPython import display
 
-    vis_trajectory = np.concatenate([np.expand_dims(init_frame, axis=0), target_frames], axis=0).transpose(0, 2, 3, 1)
-    image_list = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
-    display.Image(as_gif([x.resize((512, 512)) for x in image_list], duration=200))
+        def as_gif(images, path="temp.gif", duration=100):
+            # Render the images as the gif:
+            images[0].save(path, save_all=True, append_images=images[1:], duration=duration, loop=0)
+            return open(path, "rb").read()
+
+        vis_trajectory = video_frames.transpose(0, 2, 3, 1)
+        image_list = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
+        display.Image(as_gif([x.resize((512, 512)) for x in image_list], duration=200))
 
     CACHE_TEXT = False
-
     if CACHE_TEXT:
         import tensorflow_hub as hub
 

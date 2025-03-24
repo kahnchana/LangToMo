@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 
 import wandb
 from src import inference
-from src.dataset import calvin_dataset, flow_utils
+from src.dataset import calvin_dataset, flow_utils, metaworld
 from src.dataset import openx_trajectory_dataset as openx_traj
 from src.model import diffusion
 
@@ -44,6 +44,8 @@ class TrainingConfig:
     crop_ratio: float = 0.7
     mask_crop_ratio: float = 0.5
     prev_flow: bool = False
+    temporal_unet: bool = False
+    num_frames: int = 8
     pretrained: str = None
     output_dir: str = "experiments/test_001"  # the model name locally
     debug: bool = False
@@ -63,6 +65,8 @@ def parse_args():
     parser.add_argument("--crop-ratio", type=float, default=None)
     parser.add_argument("--mask-crop-ratio", type=float, default=None)
     parser.add_argument("--prev-flow", action="store_true", default=False)
+    parser.add_argument("--temporal", action="store_true", default=False, dest="temporal_unet")
+    parser.add_argument("--num-frames", type=int, default=8)
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="test_002")
     parser.add_argument("--port", type=int, default=8807)
@@ -129,6 +133,19 @@ def get_dataset(config, accelerator=None):
                 dataset, batch_size=config.eval_batch_size, num_workers=config.num_gpu
             )
 
+    elif config.dataset == "metaworld":
+        DATA_ROOT = "/home/kanchana/data/metaworld"
+        dataset = metaworld.MetaworldDataset(DATA_ROOT, captions=False)
+        train_dataset = metaworld.InfiniteWrapper(dataset)
+
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=config.train_batch_size, shuffle=False, num_workers=config.num_gpu
+        )
+
+        val_dataloader = torch.utils.data.DataLoader(
+            dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=config.num_gpu
+        )
+
     else:
         SPLIT_OPTIONS = ["training", "validation"]
         if config.dataset == "calvin":
@@ -168,13 +185,13 @@ def get_dataset(config, accelerator=None):
             train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=config.num_gpu
         )
         val_dataloader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=config.train_batch_size, shuffle=False, num_workers=config.num_gpu
+            val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=config.num_gpu
         )
 
     return train_dataloader, val_dataloader
 
 
-def generate_flow_online(image_condition, flow_model, flow_transform):
+def generate_flow_online(image_condition, flow_model, flow_transform, get_all_flow=False):
     flow_input, _ = flow_transform(image_condition, image_condition)
     start_im = einops.rearrange(flow_input[:, :-1], "b t c h w -> (b t) c h w")
     end_im = einops.rearrange(flow_input[:, 1:], "b t c h w -> (b t) c h w")
@@ -183,6 +200,8 @@ def generate_flow_online(image_condition, flow_model, flow_transform):
     flow_tensor = einops.rearrange(flow_tensor, "(b t) c h w -> b t c h w", b=image_condition.shape[0])
     flow_dim = flow_tensor.shape[-1]  # Image size is always square.
     normalized_flow_tensor = (flow_tensor + flow_dim) / (flow_dim * 2)
+    if get_all_flow:
+        return normalized_flow_tensor, None
     clean_flow, prev_flow = normalized_flow_tensor[:, 1], normalized_flow_tensor[:, 0]
     return clean_flow, prev_flow
 
@@ -196,13 +215,18 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
     for idx, batch in tqdm(enumerate(dataloader), total=RUN_COUNT):
         image_input = batch["observation"]
         text_cond = batch["caption_embedding"]
-        clean_flow, prev_flow = generate_flow_online(image_input, flow_model, flow_transform)
-        image_cond = image_input[:, 1]
-        start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)  # random noise
-        if config.prev_flow:
-            vis_cond = torch.cat([image_cond, prev_flow], dim=1)
+        clean_flow, prev_flow = generate_flow_online(image_input, flow_model, flow_transform, config.temporal_unet)
+        if config.temporal_unet:
+            vis_cond = image_input[:, 0]
+            clean_flow = einops.rearrange(clean_flow, "b t c h w -> b (t c) h w")
+            start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)
         else:
-            vis_cond = image_cond
+            image_cond = image_input[:, 1]
+            start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)  # random noise
+            if config.prev_flow:
+                vis_cond = torch.cat([image_cond, prev_flow], dim=1)
+            else:
+                vis_cond = image_cond
 
         generated_flow = inference.run_inference(model, start_flow, vis_cond, text_cond, num_inference_steps=25)
         with torch.no_grad():
@@ -218,15 +242,28 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
     total_loss /= count
 
     # Generate visualizations.
-    vis_count = 4
-    vis_images = einops.rearrange((image_cond[:vis_count].cpu().numpy() * 255).astype(np.uint8), "b c h w -> b h w c")
+    if config.temporal_unet:
+        vis_count = config.num_frames
+        vis_images = einops.rearrange((image_input[0, :-1].cpu().numpy() * 255).astype(np.uint8), "t c h w -> t h w c")
 
-    normalizer = flow_utils.FlowNormalizer(config.image_size, config.image_size)
-    vis_pred = einops.rearrange(generated_flow[:vis_count].cpu().numpy(), "b c h w -> b h w c")
-    vis_pred = normalizer.unnormalize(vis_pred)
+        normalizer = flow_utils.FlowNormalizer(config.image_size, config.image_size)
+        vis_pred = einops.rearrange(generated_flow[0].cpu().numpy(), "(t c) h w -> t h w c", c=2)
+        vis_pred = normalizer.unnormalize(vis_pred)
 
-    vis_gt = einops.rearrange(clean_flow[:vis_count].cpu().numpy(), "b c h w -> b h w c")
-    vis_gt = normalizer.unnormalize(vis_gt)
+        vis_gt = einops.rearrange(clean_flow[0].cpu().numpy(), "(t c) h w -> t h w c", c=2)
+        vis_gt = normalizer.unnormalize(vis_gt)
+
+    else:
+        vis_count = 4
+        vis_images = image_cond[:vis_count]
+        vis_images = einops.rearrange((vis_images.cpu().numpy() * 255).astype(np.uint8), "b c h w -> b h w c")
+
+        normalizer = flow_utils.FlowNormalizer(config.image_size, config.image_size)
+        vis_pred = einops.rearrange(generated_flow[:vis_count].cpu().numpy(), "b c h w -> b h w c")
+        vis_pred = normalizer.unnormalize(vis_pred)
+
+        vis_gt = einops.rearrange(clean_flow[:vis_count].cpu().numpy(), "b c h w -> b h w c")
+        vis_gt = normalizer.unnormalize(vis_gt)
 
     vis_gt_flow = [
         flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_gt[i], step=4, title="Ground Truth Optical Flow")
@@ -239,7 +276,6 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
 
     vis_joint = [make_image_grid([x, y], rows=1, cols=2) for x, y in zip(vis_gt_flow, vis_pred_flow)]
 
-    # Images to log.
     return {f"{split}/images": [wandb.Image(x) for x in vis_joint], f"{split}_loss": total_loss}
 
 
@@ -270,9 +306,22 @@ def train_loop(config):
     train_dataloader, val_dataloader = get_dataset(config, accelerator=accelerator)
 
     # Setup model.
-    model = diffusion.get_conditional_unet(
-        config.image_size, config.pretrained, use_prev_flow=config.prev_flow, condition_dim=512
-    )
+    if not config.temporal_unet:
+        in_channels = 7 if config.prev_flow else 5
+        model = diffusion.get_conditional_unet(
+            config.image_size, config.pretrained, in_channels=in_channels, out_channels=2, condition_dim=512
+        )
+    else:
+        in_channels = 3 + config.num_frames * 2
+        out_channels = config.num_frames * 2
+        model = diffusion.get_conditional_unet(
+            config.image_size,
+            config.pretrained,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            condition_dim=512,
+            size="S",
+        )
 
     # Setup flow model.
     flow_model = optical_flow.raft_large(weights=optical_flow.Raft_Large_Weights.DEFAULT, progress=False).eval()
@@ -307,28 +356,31 @@ def train_loop(config):
         text_condition = batch["caption_embedding"]
 
         # Generate flow online.
-        clean_flow, prev_flow = generate_flow_online(image_inputs, flow_model, flow_transform)
-        image_condition = image_inputs[:, 1]  # Select the second image in sequence.
+        clean_flow, prev_flow = generate_flow_online(image_inputs, flow_model, flow_transform, config.temporal_unet)
 
-        # Sample noise to add to the clean flow.
-        noise = torch.randn(clean_flow.shape, device=clean_flow.device)
         bs = clean_flow.shape[0]
-
-        # Sample a random timestep for each image
         timesteps = torch.randint(
             0, noise_scheduler.config.num_train_timesteps, (bs,), device=clean_flow.device, dtype=torch.int64
         )
 
-        # Add noise to the clean flow according to the noise magnitude at each timestep
-        # (this is the forward diffusion process)
-        noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
-        model_inputs = [noisy_flow, image_condition]
-        if config.prev_flow:
-            pick = random.random() < 0.5  # TODO: make this a hyperparameter
-            if pick:
-                prev_flow = torch.ones_like(prev_flow) * 0.5
-            model_inputs.append(prev_flow)
-        model_inputs = torch.concat(model_inputs, dim=1)
+        if config.temporal_unet:
+            image_condition = image_inputs[:, 0]
+            clean_flow = einops.rearrange(clean_flow, "b t c h w -> b (t c) h w")
+            noise = torch.randn(clean_flow.shape, device=clean_flow.device)
+            noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
+            model_inputs = torch.concat([image_condition, clean_flow], dim=1)
+
+        else:
+            image_condition = image_inputs[:, 1]  # Select the second image in sequence.
+            noise = torch.randn(clean_flow.shape, device=clean_flow.device)
+            noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
+            model_inputs = [noisy_flow, image_condition]
+            if config.prev_flow:
+                pick = random.random() < 0.5  # TODO: make this a hyperparameter
+                if pick:
+                    prev_flow = torch.ones_like(prev_flow) * 0.5
+                model_inputs.append(prev_flow)
+            model_inputs = torch.concat(model_inputs, dim=1)
 
         with accelerator.accumulate(model):
             # Predict the noise residual
@@ -349,7 +401,10 @@ def train_loop(config):
         # Run evaluation and visualization.
         eval_log_data = {}
         if (step + 1) % config.evaluate_interval_steps == 0 or step == config.num_train_steps:
-            train_logs = eval_func(train_dataloader, model, split="train")
+            if config.dataset in ["metaworld"]:
+                train_logs = {}
+            else:
+                train_logs = eval_func(train_dataloader, model, split="train")
             val_logs = eval_func(val_dataloader, model, split="val")
             eval_log_data = {**train_logs, **val_logs}
             if accelerator.is_main_process:

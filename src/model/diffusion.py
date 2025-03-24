@@ -3,39 +3,47 @@ import numpy as np
 import torch
 
 
-def get_conditional_unet(image_size=128, pretrained=None, use_prev_flow=False, condition_dim=768):
+def get_conditional_unet(image_size=128, pretrained=None, in_channels=5, out_channels=2, condition_dim=768, size="B"):
     if pretrained is not None:
         model = diffusers.UNet2DConditionModel.from_pretrained(pretrained, use_safetensors=True)
         return model
 
-    in_channels = 5
-    if use_prev_flow:
-        in_channels = 7
-    model = diffusers.UNet2DConditionModel(
-        sample_size=image_size,  # Target image resolution
-        in_channels=in_channels,  # Number of input channels, e.g., RGB image + flow
-        out_channels=2,  # Number of output channels, e.g., flow image
-        layers_per_block=2,  # Number of ResNet layers per UNet block
-        block_out_channels=(128, 128, 256, 256, 512, 512),  # Channels for each UNet block
-        down_block_types=(
-            "DownBlock2D",  # Regular ResNet downsampling block
-            "DownBlock2D",
-            "DownBlock2D",
-            "DownBlock2D",
-            "AttnDownBlock2D",  # Downsampling block with attention
-            "DownBlock2D",
-        ),
-        up_block_types=(
-            "UpBlock2D",  # Regular ResNet upsampling block
-            "AttnUpBlock2D",  # Upsampling block with attention
-            "UpBlock2D",
-            "UpBlock2D",
-            "UpBlock2D",
-            "UpBlock2D",
-        ),
-        cross_attention_dim=condition_dim,  # Dimension of the conditional embedding (e.g., text embeddings)
-    )
-
+    if size == "B":
+        model = diffusers.UNet2DConditionModel(
+            sample_size=image_size,  # Target image resolution
+            in_channels=in_channels,  # Number of input channels, e.g., RGB image + flow
+            out_channels=out_channels,  # Number of output channels, e.g., flow image
+            layers_per_block=2,  # Number of ResNet layers per UNet block
+            block_out_channels=(128, 128, 256, 256, 512, 512),  # Channels for each UNet block
+            down_block_types=(
+                "DownBlock2D",  # Regular ResNet downsampling block
+                "DownBlock2D",
+                "DownBlock2D",
+                "DownBlock2D",
+                "AttnDownBlock2D",  # Downsampling block with attention
+                "DownBlock2D",
+            ),
+            up_block_types=(
+                "UpBlock2D",  # Regular ResNet upsampling block
+                "AttnUpBlock2D",  # Upsampling block with attention
+                "UpBlock2D",
+                "UpBlock2D",
+                "UpBlock2D",
+                "UpBlock2D",
+            ),
+            cross_attention_dim=condition_dim,  # Dimension of the conditional embedding (e.g., text embeddings)
+        )
+    elif size == "S":
+        model = diffusers.UNet2DConditionModel(
+            sample_size=image_size,  # Target image resolution
+            in_channels=in_channels,  # Number of input channels, e.g., RGB image + flow
+            out_channels=out_channels,  # Number of output channels, e.g., flow image
+            layers_per_block=2,  # Number of ResNet layers per UNet block
+            block_out_channels=(64, 128, 256, 256),
+            down_block_types=("DownBlock2D", "AttnDownBlock2D", "DownBlock2D", "AttnDownBlock2D"),
+            up_block_types=("UpBlock2D", "AttnUpBlock2D", "UpBlock2D", "AttnUpBlock2D"),
+            cross_attention_dim=condition_dim,  # Dimension of the conditional embedding (e.g., text embeddings)
+        )
     return model
 
 
@@ -74,7 +82,7 @@ if __name__ == "__main__":
     use_3D = False
 
     if not use_3D:
-        unet_model = get_conditional_unet(IMAGE_SIZE).cuda()
+        unet_model = get_conditional_unet(IMAGE_SIZE, size="S").cuda()
 
         image = torch.ones((8, 3, IMAGE_SIZE, IMAGE_SIZE)).cuda()
         flow = torch.ones((8, 2, IMAGE_SIZE, IMAGE_SIZE)).cuda()
