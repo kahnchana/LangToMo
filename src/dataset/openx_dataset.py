@@ -152,7 +152,7 @@ class OpenXDataset:
         dataset_dict = {}
         dataset_sizes = {}
         for dataset in self.dataset_list:
-            b = tfds.builder_from_directory(builder_dir=dataset2path(dataset))
+            b = tfds.builder_from_directory(builder_dir=dataset2path(dataset, root_dir=self.root_dir))
             display_key, lang_key, in_obs, embed_key = self.get_dataset_keys(builder=b)
             dataset_sizes[dataset] = b.info.splits[f"{self.split}"].num_examples
             ds = b.as_dataset(split=self.split)
