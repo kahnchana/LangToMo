@@ -89,10 +89,11 @@ def update_config_with_args(config: TrainingConfig, opts: argparse.Namespace) ->
 def get_dataset(config, accelerator=None):
     # Load dataset.
     if config.dataset == "openx":
-        traj_len = 3
+        traj_len = 9
         sub_datasets = config.sub_datasets
+        data_root = "/home/kanchana/data/openx"
         traj_dataset = openx_traj.OpenXTrajectoryDataset(
-            datasets=sub_datasets, split="train", trajectory_length=traj_len, infinite_repeat=True
+            root_dir=data_root, datasets=sub_datasets, split="train", trajectory_length=traj_len, infinite_repeat=True
         )
         dataset_name = sub_datasets[0]  # TODO: add support for multiple datasets
         dataset_size = traj_dataset.dataset_sizes[dataset_name]
@@ -101,7 +102,9 @@ def get_dataset(config, accelerator=None):
         )
 
         val_name = sub_datasets[0]  # TODO: add support for multiple datasets
-        val_dataset = openx_traj.OpenXTrajectoryDataset(datasets=[val_name], split="test", trajectory_length=traj_len)
+        val_dataset = openx_traj.OpenXTrajectoryDataset(
+            root_dir=data_root, datasets=[val_name], split="train", trajectory_length=traj_len
+        )
         val_size = val_dataset.dataset_sizes[val_name]
         val_dataset = openx_traj.DatasetIterator(val_dataset.dataset_dict[val_name], length=val_size, get_command=False)
         if accelerator is not None:

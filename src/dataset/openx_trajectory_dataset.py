@@ -391,7 +391,7 @@ class DatasetIterator(torch.utils.data.IterableDataset):
         datum = next(self.iterator)
         new_datum = {
             "observation": datum["observation"].numpy(),
-            "caption_embedding": datum["language_embedding"].numpy(),
+            "caption_embedding": tf.math.reduce_mean(datum["language_embedding"], axis=0, keepdims=True).numpy(),
         }
         if self.get_command:
             new_datum["command"] = datum["command"][0].numpy()
@@ -465,8 +465,8 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
 
 if __name__ == "__main__":
     # traj_dataset = OpenXTrajectoryDataset(datasets=openx_dataset.DATASETS, split="train[:10]", trajectory_length=10)
-    dataset_name = "bridge"
-    traj_dataset = OpenXTrajectoryDataset(datasets=[dataset_name], split="train[:10]", trajectory_length=10)
+    dataset_name = "fractal20220817_data"
+    traj_dataset = OpenXTrajectoryDataset(datasets=[dataset_name], split="train[:10]", trajectory_length=9)
 
     dataset_size = traj_dataset.dataset_sizes[dataset_name]
     cur_dataset = DatasetIterator(traj_dataset.dataset_dict[dataset_name], dataset_size)
@@ -476,9 +476,10 @@ if __name__ == "__main__":
     print(f"Obs shape: {trajectory['observation'].shape}")
     print(f"Embed shape: {trajectory['caption_embedding'].shape}")
 
-    val_dataset = OpenXTrajectoryDataset(datasets=[dataset_name], split="test[:10]", trajectory_length=10)
-    val_size = val_dataset.dataset_sizes[dataset_name]
-    val_ds = DatasetIterator(val_dataset.dataset_dict[dataset_name], val_size)
+    val_dataset_name = "berkeley_autolab_ur5"
+    val_dataset = OpenXTrajectoryDataset(datasets=[val_dataset_name], split="test[:10]", trajectory_length=9)
+    val_size = val_dataset.dataset_sizes[val_dataset_name]
+    val_ds = DatasetIterator(val_dataset.dataset_dict[val_dataset_name], val_size)
     val_trajectory = next(val_ds)
 
     print(f"Caption: {val_trajectory['command'].decode('utf-8')}")
