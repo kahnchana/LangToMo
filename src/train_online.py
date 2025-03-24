@@ -138,7 +138,7 @@ def get_dataset(config, accelerator=None):
 
     elif config.dataset == "metaworld":
         DATA_ROOT = "/home/kanchana/data/metaworld"
-        dataset = metaworld.MetaworldDataset(DATA_ROOT, captions=False)
+        dataset = metaworld.MetaworldDataset(DATA_ROOT, captions=False, sample_per_seq=config.num_frames+1)
         train_dataset = metaworld.InfiniteWrapper(dataset)
 
         train_dataloader = torch.utils.data.DataLoader(
