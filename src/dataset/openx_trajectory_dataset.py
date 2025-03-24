@@ -420,7 +420,7 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
         dataset_dict = {}
         dataset_sizes = {}
         for dataset in self.dataset_list:
-            b = tfds.builder_from_directory(builder_dir=openx_dataset.dataset2path(dataset))
+            b = tfds.builder_from_directory(builder_dir=openx_dataset.dataset2path(dataset, root_dir=self.root_dir))
             display_key, lang_key, in_obs, embed_key = self.get_dataset_keys(builder=b)
             ds = b.as_dataset(split=self.split)
             dataset_sizes[dataset] = b.info.splits["train"].num_examples
