@@ -47,27 +47,27 @@ def get_conditional_unet(image_size=128, pretrained=None, in_channels=5, out_cha
     return model
 
 
-def get_conditional_unet_3d(image_size=128, frame_count=8, pretrained=None, condition_dim=768):
-    """WIP: currently not working"""
+def get_conditional_unet_3d(image_size=128, pretrained=None, in_channels=5, condition_dim=768, use_flash_attn=True):
+    """Working setup for 3D UNet"""
     if pretrained is not None:
         model = diffusers.UNet3DConditionModel.from_pretrained(pretrained, use_safetensors=True)
         return model
 
-    in_channels = 5
-    cross_attn_down = "CrossAttnDownBlockSpatioTemporal"  # CrossAttnDownBlockSpatioTemporal, CrossAttnDownBlock3D
-    cross_attn_up = "CrossAttnUpBlockSpatioTemporal"  # CrossAttnUpBlockSpatioTemporal, CrossAttnUpBlock3D
+    cross_attn_down = "CrossAttnDownBlock3D"  # CrossAttnDownBlockSpatioTemporal, CrossAttnDownBlock3D
+    cross_attn_up = "CrossAttnUpBlock3D"  # CrossAttnUpBlockSpatioTemporal, CrossAttnUpBlock3D
     model = diffusers.UNet3DConditionModel(
-        sample_size=(frame_count, image_size, image_size),
-        in_channels=in_channels,  # = 5
+        sample_size=image_size,
+        in_channels=in_channels,  # RGB + OF = 5
         out_channels=2,  # Predict optical flow
-        block_out_channels=(64, 128, 256, 512),
-        down_block_types=("DownBlock3D", "DownBlock3D", "DownBlock3D", cross_attn_down),
-        up_block_types=(cross_attn_up, "UpBlock3D", "UpBlock3D", "UpBlock3D"),
-        # down_block_types=(cross_attn_down, cross_attn_down, cross_attn_down, "DownBlock3D"),
-        # up_block_types=("UpBlock3D", cross_attn_up, cross_attn_up, cross_attn_up),
+        down_block_types=("DownBlock3D", "DownBlock3D", cross_attn_down, "DownBlock3D"),
+        up_block_types=("UpBlock3D", cross_attn_up, "UpBlock3D", "UpBlock3D"),
+        block_out_channels=(64, 128, 256, 256),
+        layers_per_block=2,
         cross_attention_dim=condition_dim,
-        norm_num_groups=8,
+        attention_head_dim=4,
     )
+    if not use_flash_attn:
+        model.set_attn_processor(diffusers.models.attention_processor.AttnProcessor())
 
     return model
 
@@ -79,7 +79,8 @@ if __name__ == "__main__":
     datum_file = f"{DATA_ROOT}/eps_00000.npz"
     datum = np.load(datum_file)
 
-    use_3D = False
+    use_3D = True
+    WITH_GRAD = True
 
     if not use_3D:
         unet_model = get_conditional_unet(IMAGE_SIZE, size="S").cuda()
@@ -96,22 +97,24 @@ if __name__ == "__main__":
 
         print(f"pred shape: {pred.shape}")
 
-    else:  # TODO: WIP for 3D
-        IMAGE_SIZE = 128
+    else:
+        IMAGE_SIZE = 64
         FRAMES = 8
-        unet_model = get_conditional_unet_3d(IMAGE_SIZE, FRAMES).cuda()
+        TEXT_DIM = 512
+        BATCH_SIZE = 8
+        unet_model = get_conditional_unet_3d(IMAGE_SIZE, condition_dim=TEXT_DIM, use_flash_attn=True).cuda()
 
-        image = torch.ones((4, 3, FRAMES, IMAGE_SIZE, IMAGE_SIZE)).cuda()
-        flow = torch.ones((4, 2, FRAMES, IMAGE_SIZE, IMAGE_SIZE)).cuda()
-        text_emb = torch.ones((4, 1, 512)).cuda()
-        time_step = torch.tensor([0]).cuda()
+        image = torch.ones((BATCH_SIZE, 3, FRAMES, IMAGE_SIZE, IMAGE_SIZE)).cuda()
+        flow = torch.ones((BATCH_SIZE, 2, FRAMES, IMAGE_SIZE, IMAGE_SIZE)).cuda()
 
+        text_emb = torch.ones((BATCH_SIZE, 1, TEXT_DIM)).cuda()
+        time_step = 0  # torch.tensor([500], dtype=torch.long).cuda()
         model_input = torch.concat([image, flow], dim=1)
-
-        with torch.no_grad():
-            # pred = unet_model(model_input, time_step, text_emb).sample
-            pred = unet_model(model_input, timestep=time_step, encoder_hidden_states=text_emb).sample
-
+        if WITH_GRAD:
+            pred = unet_model(model_input, time_step, encoder_hidden_states=text_emb).sample
+        else:
+            with torch.no_grad():
+                pred = unet_model(model_input, time_step, encoder_hidden_states=text_emb).sample
         print(f"pred shape: {pred.shape}")
 
     breakpoint()
