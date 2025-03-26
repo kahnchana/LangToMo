@@ -58,6 +58,8 @@ def parse_args():
     parser.add_argument("--dataset", type=str, default="calvin")
     parser.add_argument("--sub-datasets", type=str, nargs="+", default=["bridge"], help="List of sub-datasets")
     parser.add_argument("--val-sub-datasets", type=str, nargs="+", default=["bridge"], help="List of val sub-datasets")
+    parser.add_argument("--train-batch-size", type=int, default=32)
+    parser.add_argument("--eval-batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
     parser.add_argument("--steps", type=int, default=300_000, dest="num_train_steps")
     parser.add_argument("--seed", type=int, default=0)
@@ -140,7 +142,10 @@ def get_dataset(config, accelerator=None):
 
     elif config.dataset == "metaworld":
         DATA_ROOT = "/home/kanchana/data/metaworld"
-        dataset = metaworld.MetaworldDataset(DATA_ROOT, captions=False, sample_per_seq=config.num_frames + 1)
+        target_size = (config.image_size, config.image_size)
+        dataset = metaworld.MetaworldDataset(
+            DATA_ROOT, target_size=target_size, captions=False, sample_per_seq=config.num_frames + 1
+        )
         train_dataset = metaworld.InfiniteWrapper(dataset)
 
         train_dataloader = torch.utils.data.DataLoader(
@@ -222,8 +227,9 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
         text_cond = batch["caption_embedding"]
         clean_flow, prev_flow = generate_flow_online(image_input, flow_model, flow_transform, config.temporal_unet)
         if config.temporal_unet:
-            vis_cond = image_input[:, 0]
-            clean_flow = einops.rearrange(clean_flow, "b t c h w -> b (t c) h w")
+            clean_flow = einops.rearrange(clean_flow, "b t c h w -> b c t h w")
+            vis_cond = einops.rearrange(image_input[:, :1], "b t c h w -> b c t h w")
+            vis_cond = vis_cond.repeat(1, 1, clean_flow.shape[2], 1, 1)  # repeat first image T times
             start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)
         else:
             image_cond = image_input[:, 1]
@@ -252,10 +258,10 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
         vis_images = einops.rearrange((image_input[0, :-1].cpu().numpy() * 255).astype(np.uint8), "t c h w -> t h w c")
 
         normalizer = flow_utils.FlowNormalizer(config.image_size, config.image_size)
-        vis_pred = einops.rearrange(generated_flow[0].cpu().numpy(), "(t c) h w -> t h w c", c=2)
+        vis_pred = einops.rearrange(generated_flow[0].cpu().numpy(), "c t h w -> t h w c")
         vis_pred = normalizer.unnormalize(vis_pred)
 
-        vis_gt = einops.rearrange(clean_flow[0].cpu().numpy(), "(t c) h w -> t h w c", c=2)
+        vis_gt = einops.rearrange(clean_flow[0].cpu().numpy(), "c t h w -> t h w c")
         vis_gt = normalizer.unnormalize(vis_gt)
 
     else:
@@ -317,15 +323,8 @@ def train_loop(config):
             config.image_size, config.pretrained, in_channels=in_channels, out_channels=2, condition_dim=512
         )
     else:
-        in_channels = 3 + config.num_frames * 2
-        out_channels = config.num_frames * 2
-        model = diffusion.get_conditional_unet(
-            config.image_size,
-            config.pretrained,
-            in_channels=in_channels,
-            out_channels=out_channels,
-            condition_dim=512,
-            size="B",
+        model = diffusion.get_conditional_unet_3d(
+            image_size=config.image_size, pretrained=config.pretrained, condition_dim=512
         )
 
     # Setup flow model.
@@ -369,8 +368,9 @@ def train_loop(config):
         )
 
         if config.temporal_unet:
-            image_condition = image_inputs[:, 0]
-            clean_flow = einops.rearrange(clean_flow, "b t c h w -> b (t c) h w")
+            clean_flow = einops.rearrange(clean_flow, "b t c h w -> b c t h w")
+            image_condition = einops.rearrange(image_inputs[:, :1], "b t c h w -> b c t h w")
+            image_condition = image_condition.repeat(1, 1, clean_flow.shape[2], 1, 1)  # repeat first image T times
             noise = torch.randn(clean_flow.shape, device=clean_flow.device)
             noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
             model_inputs = torch.concat([noisy_flow, image_condition], dim=1)
