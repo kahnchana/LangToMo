@@ -93,7 +93,7 @@ def update_config_with_args(config: TrainingConfig, opts: argparse.Namespace) ->
 def get_dataset(config, accelerator=None):
     # Load dataset.
     if config.dataset == "openx":
-        traj_len = 9
+        traj_len = 3 if config.prev_flow else config.num_frames + 1
         sub_datasets = config.sub_datasets
         data_root = "/home/kanchana/data/openx"
         traj_dataset = openx_traj.OpenXTrajectoryDataset(
