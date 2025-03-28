@@ -143,8 +143,9 @@ def get_dataset(config, accelerator=None):
     elif config.dataset == "metaworld":
         DATA_ROOT = "/home/kanchana/data/metaworld"
         target_size = (config.image_size, config.image_size)
+        traj_len = 3 if config.prev_flow else config.num_frames + 1
         dataset = metaworld.MetaworldDataset(
-            DATA_ROOT, target_size=target_size, captions=False, sample_per_seq=config.num_frames + 1
+            DATA_ROOT, target_size=target_size, captions=False, sample_per_seq=traj_len
         )
         train_dataset = metaworld.InfiniteWrapper(dataset)
 
@@ -415,8 +416,8 @@ def train_loop(config):
             if accelerator.is_main_process:
                 if config.debug:
                     print(eval_log_data)
-                # Log to W&B
 
+        # Log to W&B
         accelerator.log({**logs, **eval_log_data}, step=step)
 
         # Save the model.
