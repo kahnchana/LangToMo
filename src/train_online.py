@@ -48,6 +48,8 @@ class TrainingConfig:
     temporal_unet: bool = False
     num_frames: int = 8
     pretrained: str = None
+    resume: bool = False
+    wandb_id: str = None
     output_dir: str = "experiments/test_001"  # the model name locally
     debug: bool = False
 
@@ -72,6 +74,8 @@ def parse_args():
     parser.add_argument("--temporal", action="store_true", default=False, dest="temporal_unet")
     parser.add_argument("--num-frames", type=int, default=8)
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--resume", action="store_true", default=False)
+    parser.add_argument("--wandb-id", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="test_002")
     parser.add_argument("--port", type=int, default=8807)
     parser.add_argument("--debug", action="store_true", default=False)
@@ -305,9 +309,15 @@ def train_loop(config):
     if accelerator.is_main_process:
         if config.output_dir is not None:
             os.makedirs(config.output_dir, exist_ok=True)
+            os.makedirs(f"{config.output_dir}/model", exist_ok=True)
+            os.makedirs(f"{config.output_dir}/train_state", exist_ok=True)
+        log_init_args = {"wandb": {"config": dataclasses.asdict(config)}}
+        if config.resume:
+            log_init_args["wandb"]["resume"] = "must"
+            log_init_args["wandb"]["id"] = config.wandb_id
         accelerator.init_trackers(
             "LangToMo",
-            init_kwargs={"wandb": {"config": dataclasses.asdict(config)}},
+            init_kwargs=log_init_args,
         )
 
     # Debug code.
@@ -318,6 +328,9 @@ def train_loop(config):
     train_dataloader, val_dataloader = get_dataset(config, accelerator=accelerator)
 
     # Setup model.
+    if config.resume:
+        config.pretrained = f"{config.output_dir}/model"
+
     if not config.temporal_unet:
         in_channels = 7 if config.prev_flow else 5
         model = diffusion.get_conditional_unet(
@@ -351,11 +364,31 @@ def train_loop(config):
     # Define evaluation function.
     eval_func = partial(evaluate, flow_model=flow_model, flow_transform=flow_transform, config=config)
 
-    # Now you train the model
-    progress_bar = tqdm(total=config.num_train_steps, disable=not accelerator.is_local_main_process)
+    data_iter = iter(train_dataloader)
+    step = 0
+    if config.resume:
+        # Load last step.
+        with open(f"{config.output_dir}/last_step.txt", "r") as f:
+            step = int(f.read().strip())
+
+        # Load train state.
+        accelerator.load_state(f"{config.output_dir}/train_state")
+
+    progress_bar = tqdm(initial=step, total=config.num_train_steps, disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Training")
 
-    for step, batch in enumerate(train_dataloader):
+    while step < config.num_train_steps:
+        # Handle infinite dataloader.
+        try:
+            batch = next(data_iter)
+        except StopIteration:
+            # Epoch ended, restart iterator
+            data_iter = iter(train_dataloader)
+            batch = next(data_iter)
+        except Exception as e:
+            print(e)
+            continue
+
         # Load data.
         image_inputs = batch["observation"]
         text_condition = batch["caption_embedding"]
@@ -423,9 +456,13 @@ def train_loop(config):
         # Save the model.
         if accelerator.is_main_process:
             if (step + 1) % config.save_interval_steps == 0 or step == config.num_train_steps:
-                model.module.save_pretrained(config.output_dir)
+                model.module.save_pretrained(f"{config.output_dir}/model")
+                accelerator.save_state(f"{config.output_dir}/train_state")
+                with open(f"{config.output_dir}/last_step.txt", "w") as f:
+                    f.write(str(step))
 
         # End training.
+        step += 1
         if step >= config.num_train_steps:
             break
 
