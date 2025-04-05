@@ -149,7 +149,7 @@ def get_dataset(config, accelerator=None):
         target_size = (config.image_size, config.image_size)
         traj_len = 3 if config.prev_flow else config.num_frames + 1
         dataset = metaworld.MetaworldDataset(
-            DATA_ROOT, target_size=target_size, captions=False, sample_per_seq=traj_len
+            DATA_ROOT, target_size=target_size, captions=False, sample_per_seq=traj_len, randomcrop=False
         )
         train_dataset = metaworld.InfiniteWrapper(dataset)
 

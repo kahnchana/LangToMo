@@ -34,7 +34,6 @@ class MetaworldDataset(torch.utils.data.Dataset):
         else:
             self.transform = video_transforms.Compose(
                 [
-                    video_transforms.CenterCrop((128, 128)),
                     video_transforms.Resize(target_size),
                     volume_transforms.ClipToTensor(),
                 ]
