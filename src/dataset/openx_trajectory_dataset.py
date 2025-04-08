@@ -1,5 +1,6 @@
 import abc
 import dataclasses
+import math
 from functools import partial
 from typing import Any, Dict, Optional, Union
 
@@ -479,12 +480,51 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
             ).build(validate_expected_tensor_spec=False)
 
             trajectory_ds = trajectory_transform.transform_episodic_rlds_dataset(ds)
+            trajectory_ds = trajectory_ds.prefetch(tf.data.AUTOTUNE)
             if self.inifinite_repeat:
                 trajectory_ds = trajectory_ds.repeat()
 
             dataset_dict[dataset] = trajectory_ds
 
         return dataset_dict, dataset_sizes
+
+
+SELECTED_DS_INFO = [
+    {"name": "fractal20220817_data", "robot": "Google Robot", "episodes": 73499, "size": 111.06},
+    {"name": "taco_play", "robot": "Franka", "episodes": 3242, "size": 47.77},
+    {"name": "language_table", "robot": "xArm", "episodes": 442226, "size": 399.22},
+    {"name": "stanford_hydra", "robot": "Franka", "episodes": 550, "size": 72.48},
+    {"name": "ucsd_pick_and_place", "robot": "xArm", "episodes": 1355, "size": 3.53},
+    {"name": "iamlab_cmu_pickup_insert_", "robot": "Franka", "episodes": 520, "size": 50.29},
+    {"name": "utaustin_mutex", "robot": "Franka", "episodes": 1500, "size": 20.79},
+]
+
+DS_TO_FPS = {
+    "fractal20220817_data": 3,
+    "taco_play": 15,
+    "language_table": 10,
+    "stanford_hydra_dataset_converted_externally_to_rlds": 10,
+    "ucsd_pick_and_place_dataset_converted_externally_to_rlds": 3,
+    "iamlab_cmu_pickup_insert_converted_externally_to_rlds": 20,
+    "utaustin_mutex": 20,
+}
+
+
+def get_ds_weights():
+    robot_weights = {"xArm": 3.0, "Franka": 1.5, "Google Robot": 1.0}
+
+    def compute_score(entry):
+        robot_weight = robot_weights.get(entry["robot"], 1.0)
+        sqrt_episodes = math.sqrt(entry["episodes"])
+        return robot_weight * sqrt_episodes / entry["size"]
+
+    raw_scores = [compute_score(d) for d in SELECTED_DS_INFO]
+
+    # Normalize
+    total = sum(raw_scores)
+    ds_weights = [score / total for score in raw_scores]
+
+    return ds_weights
 
 
 if __name__ == "__main__":
@@ -497,16 +537,8 @@ if __name__ == "__main__":
         "iamlab_cmu_pickup_insert_converted_externally_to_rlds",
         "utaustin_mutex",
     ]
-    dataset_to_fps = {
-        "fractal20220817_data": 3,
-        "taco_play": 15,
-        "language_table": 10,
-        "stanford_hydra_dataset_converted_externally_to_rlds": 10,
-        "ucsd_pick_and_place_dataset_converted_externally_to_rlds": 3,
-        "iamlab_cmu_pickup_insert_converted_externally_to_rlds": 20,
-        "utaustin_mutex": 20,
-    }
-    dataset_to_stride = {x: int(y // 3) for x, y in dataset_to_fps.items()}
+
+    dataset_to_stride = {x: int(y // 3) for x, y in DS_TO_FPS.items()}
 
     traj_dataset = OpenXTrajectoryDataset(
         datasets=dataset_names,

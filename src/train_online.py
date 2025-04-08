@@ -7,6 +7,7 @@ from functools import partial
 import accelerate
 import einops
 import numpy as np
+import tensorflow as tf
 import torch
 import torch.nn.functional as F
 from diffusers import DDPMScheduler
@@ -97,28 +98,71 @@ def update_config_with_args(config: TrainingConfig, opts: argparse.Namespace) ->
 def get_dataset(config, accelerator=None):
     # Load dataset.
     if config.dataset == "openx":
-        traj_len = 3 if config.prev_flow else config.num_frames + 1
-        sub_datasets = config.sub_datasets
-        data_root = "/home/kanchana/data/openx"
-        traj_dataset = openx_traj.OpenXTrajectoryDataset(
-            root_dir=data_root, datasets=sub_datasets, split="train", trajectory_length=traj_len, infinite_repeat=True
-        )
-        dataset_name = sub_datasets[0]  # TODO: add support for multiple datasets
-        dataset_size = traj_dataset.dataset_sizes[dataset_name]
-        dataset = openx_traj.DatasetIterator(
-            traj_dataset.dataset_dict[dataset_name], length=dataset_size, get_command=False
-        )
+        if config.sub_datasets[0] == "split_7_ds":
+            traj_len = 3 if config.prev_flow else config.num_frames + 1
+            data_root = "/home/kanchana/data/openx"
+            dataset_names = list(openx_traj.DS_TO_FPS.keys())
+            stride = 3
+            dataset_to_stride = {x: int(y // stride) for x, y in openx_traj.DS_TO_FPS.items()}
+            traj_dataset = openx_traj.OpenXTrajectoryDataset(
+                root_dir=data_root,
+                datasets=dataset_names,
+                split="train",
+                trajectory_length=traj_len,
+                traj_stride=dataset_to_stride,
+                img_size=config.image_size,
+                infinite_repeat=True,
+            )
+            mixing_weights = openx_traj.get_ds_weights()
+            mixed_dataset = tf.data.Dataset.sample_from_datasets(
+                list(traj_dataset.dataset_dict.values()), weights=mixing_weights
+            )
 
-        val_name = config.val_sub_datasets[0]  # TODO: add support for multiple datasets
-        val_dataset = openx_traj.OpenXTrajectoryDataset(
-            root_dir=data_root, datasets=[val_name], split="train", trajectory_length=traj_len
-        )
-        val_size = val_dataset.dataset_sizes[val_name]
-        val_dataset = openx_traj.DatasetIterator(val_dataset.dataset_dict[val_name], length=val_size, get_command=False)
+            val_ds_name = config.val_sub_datasets[0]
+            val_dataset = openx_traj.OpenXTrajectoryDataset(
+                root_dir=data_root,
+                datasets=[val_ds_name],
+                split="test",
+                trajectory_length=traj_len,
+                traj_stride=dataset_to_stride,
+                img_size=config.image_size,
+                infinite_repeat=True,
+            )
+            val_dataset = val_dataset.dataset_dict[val_ds_name]
+
+            train_dataset = openx_traj.DatasetIterator(mixed_dataset, get_command=False)
+            val_dataset = openx_traj.DatasetIterator(val_dataset, get_command=False)
+
+        else:
+            traj_len = 3 if config.prev_flow else config.num_frames + 1
+            sub_datasets = config.sub_datasets
+            data_root = "/home/kanchana/data/openx"
+            traj_dataset = openx_traj.OpenXTrajectoryDataset(
+                root_dir=data_root,
+                datasets=sub_datasets,
+                split="train",
+                trajectory_length=traj_len,
+                infinite_repeat=True,
+            )
+            dataset_name = sub_datasets[0]  # TODO: add support for multiple datasets
+            dataset_size = traj_dataset.dataset_sizes[dataset_name]
+            train_dataset = openx_traj.DatasetIterator(
+                traj_dataset.dataset_dict[dataset_name], length=dataset_size, get_command=False
+            )
+
+            val_name = config.val_sub_datasets[0]  # TODO: add support for multiple datasets
+            val_dataset = openx_traj.OpenXTrajectoryDataset(
+                root_dir=data_root, datasets=[val_name], split="train", trajectory_length=traj_len
+            )
+            val_size = val_dataset.dataset_sizes[val_name]
+            val_dataset = openx_traj.DatasetIterator(
+                val_dataset.dataset_dict[val_name], length=val_size, get_command=False
+            )
+
         if accelerator is not None:
             # Ensure correct process management for sharded dataset.
             train_dataloader = accelerate.data_loader.IterableDatasetShard(
-                dataset,
+                train_dataset,
                 batch_size=config.train_batch_size,
                 num_processes=accelerator.num_processes,
                 process_index=accelerator.process_index,
@@ -138,10 +182,10 @@ def get_dataset(config, accelerator=None):
             )
         else:
             train_dataloader = torch.utils.data.DataLoader(
-                dataset, batch_size=config.train_batch_size, num_workers=config.num_gpu
+                train_dataset, batch_size=config.train_batch_size, num_workers=config.num_gpu
             )
             val_dataloader = torch.utils.data.DataLoader(
-                dataset, batch_size=config.eval_batch_size, num_workers=config.num_gpu
+                val_dataset, batch_size=config.eval_batch_size, num_workers=config.num_gpu
             )
 
     elif config.dataset == "metaworld":
