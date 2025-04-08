@@ -178,15 +178,10 @@ class OpenXDataset:
 
 
 if __name__ == "__main__":
-    openx_dataset_instance = OpenXDataset(datasets=DATASETS, split="train[:10]")  # Load only 10 samples.
+    CUR_DATASETS = ["language_table"]
+    openx_dataset_instance = OpenXDataset(datasets=CUR_DATASETS, split="train[:10]")  # Load only 10 samples.
 
-    # ds = openx_dataset_instance.dataset_dict["language_table"]
-    # step_obs = next(iter(ds))
-    # print(f"Caption: {step_obs['command'].numpy().decode('utf-8')}")
-    # print(f"Obs shape: {step_obs['observation'].shape}")
-    # vis_image = Image.fromarray(step_obs["observation"].numpy().astype(np.uint8))
-
-    ds = openx_dataset_instance.dataset_dict["fractal20220817_data"]
+    ds = openx_dataset_instance.dataset_dict[CUR_DATASETS[0]]
     step_obs = next(iter(ds))
     print(f"Caption: {step_obs['command'].numpy().decode('utf-8')}")
     print(f"Obs shape: {step_obs['observation'].shape}")

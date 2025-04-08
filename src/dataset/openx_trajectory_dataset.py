@@ -8,6 +8,7 @@ import reverb
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import torch
+import tqdm
 import tree
 from PIL import Image
 from rlds import rlds_types, transformations
@@ -69,6 +70,10 @@ class RLDSSpec(metaclass=abc.ABCMeta):
     action_info: Optional[tfds.features.FeatureConnector] = None
     reward_info: Optional[tfds.features.FeatureConnector] = None
     discount_info: Optional[tfds.features.FeatureConnector] = None
+    caption_info: Optional[tfds.features.FeatureConnector] = None
+    text_embedding_info: Optional[tfds.features.FeatureConnector] = None
+    caption_key: Optional[str] = None
+    temb_key: Optional[str] = None
     step_metadata_info: Optional[tfds.features.FeaturesDict] = None
     episode_metadata_info: Optional[tfds.features.FeaturesDict] = None
 
@@ -83,6 +88,10 @@ class RLDSSpec(metaclass=abc.ABCMeta):
             step[rlds_types.DISCOUNT] = _features_to_tensor_spec(self.discount_info)
         if self.reward_info:
             step[rlds_types.REWARD] = _features_to_tensor_spec(self.reward_info)
+        if self.caption_info:
+            step[self.caption_key] = _features_to_tensor_spec(self.caption_info)
+        if self.text_embedding_info:
+            step[self.temb_key] = _features_to_tensor_spec(self.text_embedding_info)
         if self.step_metadata_info:
             for k, v in self.step_metadata_info.items():
                 step[k] = _features_to_tensor_spec(v)
@@ -121,6 +130,8 @@ class RLDSSpec(metaclass=abc.ABCMeta):
             observation_info=_encoded_feature(self.observation_info, image_encoding, tensor_encoding),
             action_info=_encoded_feature(self.action_info, image_encoding, tensor_encoding),
             reward_info=_encoded_feature(self.reward_info, image_encoding, tensor_encoding),
+            caption_info=_encoded_feature(self.caption_info, image_encoding, tensor_encoding),
+            text_embedding_info=_encoded_feature(self.text_embedding_info, image_encoding, tensor_encoding),
             discount_info=_encoded_feature(self.discount_info, image_encoding, tensor_encoding),
             step_metadata_info=_encoded_feature(self.step_metadata_info, image_encoding, tensor_encoding),
             episode_metadata_info=_encoded_feature(self.episode_metadata_info, image_encoding, tensor_encoding),
@@ -142,6 +153,10 @@ class RLDSSpec(metaclass=abc.ABCMeta):
             step_config[rlds_types.DISCOUNT] = self.discount_info
         if self.reward_info:
             step_config[rlds_types.REWARD] = self.reward_info
+        if self.caption_info:
+            step_config[self.caption_key] = self.caption_info
+        if self.text_embedding_info:
+            step_config[self.temb_key] = self.text_embedding_info
 
         if self.step_metadata_info:
             for k, v in self.step_metadata_info.items():
@@ -359,17 +374,17 @@ def create_structured_writer_config(table_name: str, pattern: reverb.structured_
     return config
 
 
-def n_step_pattern_builder(n: int) -> Any:
+def n_step_pattern_builder(n: int, stride: int = 1) -> Any:
     """Creates trajectory of length `n` from all fields of a `ref_step`."""
 
     def transform_fn(ref_step):
         traj = {}
         for key in ref_step:
             if isinstance(ref_step[key], dict):
-                transformed_entry = tree.map_structure(lambda ref_node: ref_node[-n:], ref_step[key])
+                transformed_entry = tree.map_structure(lambda ref_node: ref_node[-n * stride :: stride], ref_step[key])
                 traj[key] = transformed_entry
             else:
-                traj[key] = ref_step[key][-n:]
+                traj[key] = ref_step[key][-n * stride :: stride]
 
         return traj
 
@@ -377,7 +392,7 @@ def n_step_pattern_builder(n: int) -> Any:
 
 
 class DatasetIterator(torch.utils.data.IterableDataset):
-    def __init__(self, dataset, length, get_command=True):
+    def __init__(self, dataset, length=-1, get_command=True):
         self.get_command = get_command
         self.dataset = dataset
         self.length = length
@@ -391,7 +406,8 @@ class DatasetIterator(torch.utils.data.IterableDataset):
         datum = next(self.iterator)
         new_datum = {
             "observation": datum["observation"].numpy(),
-            "caption_embedding": tf.math.reduce_mean(datum["language_embedding"], axis=0, keepdims=True).numpy(),
+            "caption_embedding": datum["language_embedding"].numpy(),
+            # "caption_embedding": tf.math.reduce_mean(datum["language_embedding"], axis=0, keepdims=True).numpy(),
         }
         if self.get_command:
             new_datum["command"] = datum["command"][0].numpy()
@@ -411,8 +427,12 @@ def custom_collate_fn(batch):
 
 
 class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
-    def __init__(self, *init_args, trajectory_length=3, infinite_repeat=False, **init_kwargs):
+    def __init__(
+        self, *init_args, trajectory_length=3, traj_stride=1, img_size=128, infinite_repeat=False, **init_kwargs
+    ):
         self.trajectory_length = trajectory_length
+        self.trajectory_stride = traj_stride
+        self.img_size = img_size
         self.inifinite_repeat = infinite_repeat
         super().__init__(*init_args, **init_kwargs)
 
@@ -424,22 +444,22 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
             display_key, lang_key, in_obs, embed_key = self.get_dataset_keys(builder=b)
             ds = b.as_dataset(split=self.split)
             dataset_sizes[dataset] = b.info.splits["train"].num_examples
+            decode_func = partial(self.decode_inst_bytes, dataset=dataset, in_obs=in_obs, lang_key=lang_key)
 
             if in_obs:
                 rlds_spec = RLDSSpec(observation_info=b.info.features["steps"]["observation"])
             else:
                 rlds_spec = RLDSSpec(
                     observation_info=b.info.features["steps"]["observation"],
-                    action_info=b.info.features["steps"][lang_key],  # hack for key name
-                    reward_info=b.info.features["steps"][embed_key],  # hack for key name
+                    caption_info=b.info.features["steps"][lang_key],
+                    text_embedding_info=b.info.features["steps"][embed_key],
+                    caption_key=lang_key,
+                    temb_key=embed_key,
                 )
-                lang_key = "action"
-                embed_key = "reward"
 
             def step_map_fn(step):
-                decode_func = partial(self.decode_inst_bytes, dataset=dataset, in_obs=in_obs, lang_key=lang_key)
                 transformed_step = {}
-                image = tf.image.resize(step["observation"][display_key], [128, 128])
+                image = tf.image.resize(step["observation"][display_key], [self.img_size, self.img_size])
                 image = tf.cast(image, tf.float32) / 255.0
                 image = tf.transpose(image, perm=[2, 0, 1])  # HWC to CHW
                 transformed_step["observation"] = image
@@ -450,8 +470,12 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
                 transformed_step["is_terminal"] = step["is_terminal"]
                 return transformed_step
 
+            cur_stride = (
+                self.trajectory_stride if isinstance(self.trajectory_stride, int) else self.trajectory_stride[dataset]
+            )
+            pattern_func = n_step_pattern_builder(self.trajectory_length, stride=cur_stride)
             trajectory_transform = TrajectoryTransformBuilder(
-                rlds_spec, step_map_fn=step_map_fn, pattern_fn=n_step_pattern_builder(self.trajectory_length)
+                rlds_spec, step_map_fn=step_map_fn, pattern_fn=pattern_func
             ).build(validate_expected_tensor_spec=False)
 
             trajectory_ds = trajectory_transform.transform_episodic_rlds_dataset(ds)
@@ -464,36 +488,62 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
 
 
 if __name__ == "__main__":
-    # traj_dataset = OpenXTrajectoryDataset(datasets=openx_dataset.DATASETS, split="train[:10]", trajectory_length=10)
-    dataset_name = "fractal20220817_data"
-    traj_dataset = OpenXTrajectoryDataset(datasets=[dataset_name], split="train[:10]", trajectory_length=9)
+    dataset_names = [
+        "fractal20220817_data",
+        "taco_play",
+        "language_table",
+        "stanford_hydra_dataset_converted_externally_to_rlds",
+        "ucsd_pick_and_place_dataset_converted_externally_to_rlds",
+        "iamlab_cmu_pickup_insert_converted_externally_to_rlds",
+        "utaustin_mutex",
+    ]
+    dataset_to_fps = {
+        "fractal20220817_data": 3,
+        "taco_play": 15,
+        "language_table": 10,
+        "stanford_hydra_dataset_converted_externally_to_rlds": 10,
+        "ucsd_pick_and_place_dataset_converted_externally_to_rlds": 3,
+        "iamlab_cmu_pickup_insert_converted_externally_to_rlds": 20,
+        "utaustin_mutex": 20,
+    }
+    dataset_to_stride = {x: int(y // 3) for x, y in dataset_to_fps.items()}
 
-    dataset_size = traj_dataset.dataset_sizes[dataset_name]
-    cur_dataset = DatasetIterator(traj_dataset.dataset_dict[dataset_name], dataset_size)
-    trajectory = next(cur_dataset)
+    traj_dataset = OpenXTrajectoryDataset(
+        datasets=dataset_names,
+        split="train[:10]",
+        trajectory_length=9,
+        traj_stride=dataset_to_stride,
+        img_size=256,
+        root_dir="/nfs/ws2/kanchana/openx",
+    )
 
-    print(f"Caption: {trajectory['command'].decode('utf-8')}")
-    print(f"Obs shape: {trajectory['observation'].shape}")
-    print(f"Embed shape: {trajectory['caption_embedding'].shape}")
-
-    val_dataset_name = "berkeley_autolab_ur5"
-    val_dataset = OpenXTrajectoryDataset(datasets=[val_dataset_name], split="test[:10]", trajectory_length=9)
-    val_size = val_dataset.dataset_sizes[val_dataset_name]
-    val_ds = DatasetIterator(val_dataset.dataset_dict[val_dataset_name], val_size)
-    val_trajectory = next(val_ds)
-
-    print(f"Caption: {val_trajectory['command'].decode('utf-8')}")
-    print(f"Obs shape: {val_trajectory['observation'].shape}")
-    print(f"Embed shape: {val_trajectory['caption_embedding'].shape}")
+    mixed_dataset = tf.data.experimental.sample_from_datasets(
+        list(traj_dataset.dataset_dict.values()), weights=[1 / len(dataset_names)] * len(dataset_names)
+    )
 
     if False:
-        from IPython import display
+        vis_dict = {}
+        for ds_name in tqdm.tqdm(dataset_names):
+            cur_ds = iter(traj_dataset.dataset_dict[ds_name])
+            trajectory = next(cur_ds)
+            vis_trajectory = np.transpose(trajectory["observation"], axes=(0, 2, 3, 1))
+            image_list = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
+            vis_dict[ds_name] = image_list
 
+    if False:
+        cur_ds = iter(traj_dataset.dataset_dict[dataset_names[0]])
+        trajectory = next(cur_ds)
         vis_trajectory = np.transpose(trajectory["observation"], axes=(0, 2, 3, 1))
         image_list = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
+
+        from IPython import display
+
         display.Image(openx_dataset.as_gif([x.resize((512, 512)) for x in image_list]))
 
     if False:
+        train_dataset = DatasetIterator(traj_dataset.dataset_dict[dataset_names[0]], get_command=False)
+        cur_dataset = DatasetIterator(traj_dataset.dataset_dict[dataset_names[0]])  # include command for val (default)
+        # cur_dataset = DatasetIterator(mixed_dataset)
         train_loader = torch.utils.data.DataLoader(cur_dataset, sampler=None, batch_size=4)
         for batch in train_loader:
             print(batch["observation"].shape)
