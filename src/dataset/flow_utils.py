@@ -1,5 +1,5 @@
+import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PIL import Image
@@ -116,6 +116,92 @@ def visualize_flow_vectors(image, flow, step=16, save_path=None, title="Optical 
         plt.savefig(save_path)
     else:
         plt.show()
+
+
+def visualize_multiple_flow_vectors_as_PIL(image, flows, step=16, title="Optical Flow Vectors (Future Steps)"):
+    """
+    Overlay multiple optical flow vectors on an image for several future steps.
+
+    Parameters:
+        image (numpy.ndarray): Input image (H, W, 3).
+        flows (numpy.ndarray): Optical flow array (T, H, W, 2), where T is the number of steps.
+        step (int): Sampling step for displaying flow vectors.
+
+    Returns:
+        PIL.Image.Image: Visualization as a PIL image.
+    """
+    T, H, W, _ = flows.shape
+    y, x = np.mgrid[step // 2 : H : step, step // 2 : W : step].astype(np.int32)
+
+    # Create matplotlib figure
+    fig = Figure(figsize=(10, 10))
+    canvas = FigureCanvas(fig)
+    ax = fig.add_subplot(111)
+
+    ax.imshow(image)
+    colors = plt.cm.viridis(np.linspace(0, 1, T))  # Unique color for each step
+
+    for t in range(T):
+        fx, fy = flows[t, x, y].T
+        ax.quiver(
+            x,
+            y,
+            fx,
+            fy,
+            color=colors[t],
+            angles="xy",
+            scale_units="xy",
+            scale=1,
+            width=0.002,
+            alpha=0.8,
+            label=f"Step {t + 1}",
+        )
+
+    ax.set_title(title)
+    ax.axis("off")
+    ax.legend(loc="upper right", fontsize="small", frameon=True)
+    fig.tight_layout()
+
+    # Render to PIL image
+    canvas.draw()
+    buf = canvas.buffer_rgba()
+    pil_image = Image.frombuffer("RGBA", canvas.get_width_height(), buf, "raw", "RGBA", 0, 1)
+
+    return pil_image
+
+
+def flow_to_pil_hsv(flow_tensor, saturation=255, gamma=2.0):
+    """
+    Convert a flow field (C=2, H, W) torch.Tensor to a color image using PIL.
+    Returns a PIL RGB Image.
+    """
+    if flow_tensor.shape[0] != 2:
+        raise ValueError("Expected flow tensor shape (2, H, W)")
+
+    if isinstance(flow_tensor, np.ndarray):
+        flow = flow_tensor
+    else:
+        flow = flow_tensor.detach().cpu().numpy()
+    fx, fy = flow[0], flow[1]
+    magnitude = np.sqrt(fx**2 + fy**2)
+    angle = np.arctan2(fy, fx)  # range: [-pi, pi]
+
+    # Normalize angle to [0, 1] for hue
+    hue = (angle + np.pi) / (2 * np.pi)
+    # Normalize magnitude to [0, 1] for value
+    max_magnitude = max(np.percentile(magnitude, 99), 5)
+    mag_norm = np.clip(magnitude / (max_magnitude + 1e-5), 0, 1)
+    mag_norm = np.power(mag_norm, gamma)
+
+    hsv = np.zeros((flow.shape[1], flow.shape[2], 3), dtype=np.uint8)
+    hsv[..., 0] = (hue * 255).astype(np.uint8)  # Hue
+
+    hsv[..., 1] = (saturation * mag_norm).astype(np.uint8)
+    hsv[..., 2] = (255 * mag_norm + (1 - mag_norm) * 255).astype(np.uint8)
+
+    hsv_image = Image.fromarray(hsv, mode="HSV")
+    rgb_image = hsv_image.convert("RGB")
+    return rgb_image
 
 
 # Example usage

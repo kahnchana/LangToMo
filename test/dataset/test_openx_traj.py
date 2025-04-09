@@ -1,5 +1,4 @@
 import einops
-import flow_vis
 import numpy as np
 import tensorflow as tf
 import torch
@@ -76,14 +75,40 @@ vis_images = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8
 
 frames = torch.from_numpy(frames)
 gen_flow = generate_flow_online(frames.cuda(), flow_model, flow_transform)
-vis_flow = einops.rearrange(gen_flow, "b c h w -> b h w c").cpu().numpy()
-overlay = [flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_flow[i], step=8) for i in range(len(gen_flow))]
 
-display.Image(as_gif([x.resize((512, 512)) for x in overlay], duration=500))
 
-flow_color = [flow_vis.flow_to_color(x, convert_to_bgr=False) for x in vis_flow]
-flow_color = [Image.fromarray(x) for x in flow_color]
-flow_gif = display.Image(as_gif([x.resize((512, 512)) for x in flow_color], duration=500))
+GET_ALL = False
+if GET_ALL:
+    ds_frame_dict = {dataset_names[0]: (vis_images, gen_flow.cpu())}
+    for dataset_name in dataset_names[1:]:
+        cur_ds = iter(traj_dataset.dataset_dict[dataset_name])
+        for _ in range(10):
+            trajectory = next(cur_ds)
+            frames = trajectory["observation"].numpy()
+        vis_trajectory = einops.rearrange(frames, "b c h w -> b h w c")
+        vis_images = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
 
-overlay_gif = [Image.blend(im, fl, alpha=0.4) for im, fl in zip(vis_images, flow_color)]
-display.Image(as_gif(overlay_gif, duration=500))
+        frames = torch.from_numpy(frames)
+        gen_flow = generate_flow_online(frames.cuda(), flow_model, flow_transform)
+        ds_frame_dict[dataset_name] = (vis_images, gen_flow.cpu())
+
+GEN_VIS = False
+if GEN_VIS:
+    if GET_ALL:
+        cur_name = dataset_names[0]
+        vis_images, gen_flow = ds_frame_dict[cur_name]
+
+    # Overlay as arrows
+    vis_flow = einops.rearrange(gen_flow, "b c h w -> b h w c").cpu().numpy()
+    overlay = [
+        flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_flow[i], step=8) for i in range(len(gen_flow))
+    ]
+    display.Image(as_gif([x.resize((512, 512)) for x in overlay], duration=500))
+
+    # Visualize flow as RGB image.
+    flow_color = [flow_utils.flow_to_pil_hsv(x) for x in gen_flow]
+    display.Image(as_gif([x.resize((512, 512)) for x in flow_color], duration=500))
+
+    # RGG flow overlay.
+    overlay_gif = [Image.blend(im, fl, alpha=0.5) for im, fl in zip(vis_images, flow_color)]
+    display.Image(as_gif(overlay_gif, duration=500))
