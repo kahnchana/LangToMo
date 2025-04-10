@@ -1,10 +1,11 @@
 import argparse
-import os
 import glob
+import os
 
 import diffusers
 import einops
 import numpy as np
+import tensorflow_hub as hub
 import torch
 import tqdm
 from PIL import Image
@@ -42,13 +43,15 @@ class Dummy:
 if __name__ == "__main__":
     # args = parse_args()
     args = Dummy()
-    args.model = "mw_009"
+    args.model = "oxe_002"
     args.model_root = "/home/kanchana/repo/LangToMo/experiments"
     args.data_root = "/home/kanchana/data/calvin"
-    args.from_image = (
-        "/home/kanchana/repo/AVDC_experiments/results/test_mw_002/videos/door-open-v2-goal-observable/*.png"
-    )
+    args.from_image = "/home/kanchana/data/rlab_env/lab/*.png"
     args.text_emb = "/home/kanchana/data/metaworld/use_embeddings.npz"
+    args.text_emb = None
+
+    if args.text_emb is None:
+        lang_model = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
 
     SPLIT_OPTIONS = ["training", "validation"]
     TASK_OPTIONS = ["D_D", "ABC_D"]
@@ -78,10 +81,16 @@ if __name__ == "__main__":
     else:
         image_size = (128, 128)
         task_name = os.path.basename(os.path.dirname(args.from_image))
-        embedding_dict = dict(np.load(args.text_emb))
-        task_embed = torch.from_numpy(embedding_dict[" ".join(task_name.split("-")[:-3])])
-        image_list = sorted(glob.glob(args.from_image), key=lambda x: int(x[:-4].split("_")[-1]))
+        if args.text_emb is not None:
+            embedding_dict = dict(np.load(args.text_emb))
+            task_embed = torch.from_numpy(embedding_dict[" ".join(task_name.split("-")[:-3])])
+        else:
+            task_embed = torch.from_numpy(lang_model(["Pick up the orange duck."]).numpy())
+        # image_list = sorted(glob.glob(args.from_image), key=lambda x: int(x[:-4].split("_")[-1]))
+        image_list = sorted(glob.glob(args.from_image))
         image_list = [Image.open(x) for x in image_list]
+        if image_list[0].mode != "RGB":
+            image_list = [x.convert("RGB") for x in image_list]
         image_list = [x.resize(image_size) for x in image_list]
         image_list = [np.array(x) for x in image_list]
         image_list = [x / 255.0 for x in image_list]
@@ -159,5 +168,5 @@ if __name__ == "__main__":
             flow_utils.visualize_flow_vectors_as_PIL(vis_image_list[i][:, :, :3], vis_pred_list[i], step=4)
             for i in range(len(vis_image_list))
         ]
-        output_path = f"{save_dir}/vis_images.gif"
-        save_gif(pred_video, output_path)
+        # output_path = f"{save_dir}/vis_images.gif"
+        # save_gif(pred_video, output_path)

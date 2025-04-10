@@ -137,27 +137,30 @@ def get_dataset(config, accelerator=None):
             traj_len = 3 if config.prev_flow else config.num_frames + 1
             sub_datasets = config.sub_datasets
             data_root = "/home/kanchana/data/openx"
+            stride = 0.5
+            dataset_to_stride = {x: int(y // stride) for x, y in openx_traj.DS_TO_FPS.items()}
             traj_dataset = openx_traj.OpenXTrajectoryDataset(
                 root_dir=data_root,
                 datasets=sub_datasets,
                 split="train",
                 trajectory_length=traj_len,
+                traj_stride=dataset_to_stride,
+                img_size=config.image_size,
                 infinite_repeat=True,
             )
             dataset_name = sub_datasets[0]  # TODO: add support for multiple datasets
-            dataset_size = traj_dataset.dataset_sizes[dataset_name]
-            train_dataset = openx_traj.DatasetIterator(
-                traj_dataset.dataset_dict[dataset_name], length=dataset_size, get_command=False
-            )
+            train_dataset = openx_traj.DatasetIterator(traj_dataset.dataset_dict[dataset_name], get_command=False)
 
             val_name = config.val_sub_datasets[0]  # TODO: add support for multiple datasets
             val_dataset = openx_traj.OpenXTrajectoryDataset(
-                root_dir=data_root, datasets=[val_name], split="train", trajectory_length=traj_len
+                root_dir=data_root,
+                datasets=[val_name],
+                split="train",
+                trajectory_length=traj_len,
+                traj_stride=dataset_to_stride,
+                img_size=config.image_size,
             )
-            val_size = val_dataset.dataset_sizes[val_name]
-            val_dataset = openx_traj.DatasetIterator(
-                val_dataset.dataset_dict[val_name], length=val_size, get_command=False
-            )
+            val_dataset = openx_traj.DatasetIterator(val_dataset.dataset_dict[val_name], get_command=False)
 
         if accelerator is not None:
             # Ensure correct process management for sharded dataset.
@@ -250,13 +253,18 @@ def get_dataset(config, accelerator=None):
     return train_dataloader, val_dataloader
 
 
-def generate_flow_online(image_condition, flow_model, flow_transform, get_all_flow=False):
+def generate_flow_online(config, image_condition, flow_model, flow_transform, get_all_flow=False):
     flow_input, _ = flow_transform(image_condition, image_condition)
     start_im = einops.rearrange(flow_input[:, :-1], "b t c h w -> (b t) c h w")
     end_im = einops.rearrange(flow_input[:, 1:], "b t c h w -> (b t) c h w")
     with torch.no_grad():
         flow_tensor = flow_model(start_im, end_im, num_flow_updates=6)[-1]
+    image_size = config.image_size
+    scale = 256 / image_size  # Hard Coded.
+    flow_tensor = F.interpolate(flow_tensor, size=(128, 128), mode="bilinear", align_corners=True)
+    flow_tensor = flow_tensor / scale
     flow_tensor = einops.rearrange(flow_tensor, "(b t) c h w -> b t c h w", b=image_condition.shape[0])
+
     flow_dim = flow_tensor.shape[-1]  # Image size is always square.
     normalized_flow_tensor = (flow_tensor + flow_dim) / (flow_dim * 2)
     if get_all_flow:
@@ -271,10 +279,14 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
         RUN_COUNT = 3
     count = 0
     total_loss = 0
+    vis_index = np.random.choice(RUN_COUNT)
+    vis_pair = None
     for idx, batch in tqdm(enumerate(dataloader), total=RUN_COUNT):
         image_input = batch["observation"]
-        text_cond = batch["caption_embedding"]
-        clean_flow, prev_flow = generate_flow_online(image_input, flow_model, flow_transform, config.temporal_unet)
+        text_cond = batch["caption_embedding"][:, 1:2]
+        clean_flow, prev_flow = generate_flow_online(
+            config, batch["observation_256"], flow_model, flow_transform, config.temporal_unet
+        )
         if config.temporal_unet:
             clean_flow = einops.rearrange(clean_flow, "b t c h w -> b c t h w")
             vis_cond = einops.rearrange(image_input[:, :1], "b t c h w -> b c t h w")
@@ -284,6 +296,7 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
             image_cond = image_input[:, 1]
             start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)  # random noise
             if config.prev_flow:
+                prev_flow = torch.ones_like(prev_flow) * 0.5
                 vis_cond = torch.cat([image_cond, prev_flow], dim=1)
             else:
                 vis_cond = image_cond
@@ -294,6 +307,9 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
 
         total_loss += loss.item()
         count += 1
+
+        if idx == vis_index:
+            vis_pair = (image_cond, generated_flow, clean_flow)
 
         if True:  # split == "train":
             if idx >= RUN_COUNT:
@@ -315,6 +331,7 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
 
     else:
         vis_count = 4
+        image_cond, generated_flow, clean_flow = vis_pair
         vis_images = image_cond[:vis_count]
         vis_images = einops.rearrange((vis_images.cpu().numpy() * 255).astype(np.uint8), "b c h w -> b h w c")
 
@@ -438,7 +455,9 @@ def train_loop(config):
         text_condition = batch["caption_embedding"]
 
         # Generate flow online.
-        clean_flow, prev_flow = generate_flow_online(image_inputs, flow_model, flow_transform, config.temporal_unet)
+        clean_flow, prev_flow = generate_flow_online(
+            config, batch["observation_256"], flow_model, flow_transform, config.temporal_unet
+        )
 
         bs = clean_flow.shape[0]
         timesteps = torch.randint(
@@ -455,6 +474,7 @@ def train_loop(config):
 
         else:
             image_condition = image_inputs[:, 1]  # Select the second image in sequence.
+            text_condition = text_condition[:, 1:2]  # Select corresponding text condition keeping dims.
             noise = torch.randn(clean_flow.shape, device=clean_flow.device)
             noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
             model_inputs = [noisy_flow, image_condition]
@@ -488,7 +508,10 @@ def train_loop(config):
                 train_logs = {}
             else:
                 train_logs = eval_func(train_dataloader, model, split="train")
-            val_logs = eval_func(val_dataloader, model, split="val")
+            if config.val_sub_datasets[0] in ["ucsd_pick_and_place_dataset_converted_externally_to_rlds"]:
+                val_logs = {}
+            else:
+                val_logs = eval_func(val_dataloader, model, split="val")
             eval_log_data = {**train_logs, **val_logs}
             if accelerator.is_main_process:
                 if config.debug:

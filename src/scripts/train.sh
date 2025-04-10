@@ -89,7 +89,25 @@ python src/train_online.py \
     --lr 1e-4 \
     --steps 300_000 \
     --prev-flow \
-    --output-dir experiments/ox_ds7_002 \
-    --num-gpu 8 \
+    --output-dir experiments/ox_ds7_001 \
+    --resume \
+    --wandb-id "lthj46nx" \
+    --num-gpu 4 \
+    --port 8809 \
+    --debug
+
+# OpenX ucsd_pick_and_place.
+python src/train_online.py \
+    --dataset openx \
+    --sub-datasets ucsd_pick_and_place_dataset_converted_externally_to_rlds \
+    --val-sub-datasets ucsd_pick_and_place_dataset_converted_externally_to_rlds \
+    --train-batch-size 32 \
+    --eval-batch-size 16 \
+    --image-size 128 \
+    --lr 1e-4 \
+    --steps 300_000 \
+    --prev-flow \
+    --output-dir experiments/ox_xarm_001 \
+    --num-gpu 4 \
     --port 8809 \
     --debug

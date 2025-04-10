@@ -407,6 +407,7 @@ class DatasetIterator(torch.utils.data.IterableDataset):
         datum = next(self.iterator)
         new_datum = {
             "observation": datum["observation"].numpy(),
+            "observation_256": datum["observation_256"].numpy(),
             "caption_embedding": datum["language_embedding"].numpy(),
             # "caption_embedding": tf.math.reduce_mean(datum["language_embedding"], axis=0, keepdims=True).numpy(),
         }
@@ -444,6 +445,13 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
             b = tfds.builder_from_directory(builder_dir=openx_dataset.dataset2path(dataset, root_dir=self.root_dir))
             display_key, lang_key, in_obs, embed_key = self.get_dataset_keys(builder=b)
             ds = b.as_dataset(split=self.split)
+
+            def is_successful(episode):
+                return episode["episode_metadata"]["success"]
+
+            if dataset in ["ucsd_pick_and_place_dataset_converted_externally_to_rlds"]:
+                ds = ds.filter(is_successful)
+
             dataset_sizes[dataset] = b.info.splits["train"].num_examples
             decode_func = partial(self.decode_inst_bytes, dataset=dataset, in_obs=in_obs, lang_key=lang_key)
 
@@ -463,7 +471,11 @@ class OpenXTrajectoryDataset(openx_dataset.OpenXDataset):
                 image = tf.image.resize(step["observation"][display_key], [self.img_size, self.img_size])
                 image = tf.cast(image, tf.float32) / 255.0
                 image = tf.transpose(image, perm=[2, 0, 1])  # HWC to CHW
+                image_256 = tf.image.resize(step["observation"][display_key], [256, 256])
+                image_256 = tf.cast(image_256, tf.float32) / 255.0
+                image_256 = tf.transpose(image_256, perm=[2, 0, 1])
                 transformed_step["observation"] = image
+                transformed_step["observation_256"] = image_256
                 transformed_step["command"] = decode_func(step)
                 transformed_step["language_embedding"] = step["observation"][embed_key] if in_obs else step[embed_key]
                 transformed_step["is_first"] = step["is_first"]

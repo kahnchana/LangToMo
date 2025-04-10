@@ -29,13 +29,13 @@ def generate_flow_online(image_condition, flow_model, flow_transform):
 
 
 dataset_names = [
-    "fractal20220817_data",
-    "taco_play",
-    "language_table",
-    "stanford_hydra_dataset_converted_externally_to_rlds",
+    # "fractal20220817_data",
+    # "taco_play",
+    # "language_table",
+    # "stanford_hydra_dataset_converted_externally_to_rlds",
     "ucsd_pick_and_place_dataset_converted_externally_to_rlds",
-    "iamlab_cmu_pickup_insert_converted_externally_to_rlds",
-    "utaustin_mutex",
+    # "iamlab_cmu_pickup_insert_converted_externally_to_rlds",
+    # "utaustin_mutex",
 ]
 dataset_to_fps = {
     "fractal20220817_data": 3,
@@ -46,14 +46,15 @@ dataset_to_fps = {
     "iamlab_cmu_pickup_insert_converted_externally_to_rlds": 20,
     "utaustin_mutex": 20,
 }
-dataset_to_stride = {x: int(y // 3) for x, y in dataset_to_fps.items()}
+stride = 0.5
+dataset_to_stride = {x: int(y // stride) for x, y in dataset_to_fps.items()}
 
 traj_dataset = openx_traj.OpenXTrajectoryDataset(
     datasets=dataset_names,
-    split="train[:10]",
-    trajectory_length=9,
+    split="train[:20]",
+    trajectory_length=5,
     traj_stride=dataset_to_stride,
-    img_size=256,
+    img_size=128,
     root_dir="/nfs/ws2/kanchana/openx",
 )
 
@@ -69,7 +70,7 @@ flow_transform = of_utils.Raft_Large_Weights.DEFAULT.transforms()
 cur_ds = iter(traj_dataset.dataset_dict[dataset_names[0]])
 for _ in range(10):
     trajectory = next(cur_ds)
-frames = trajectory["observation"].numpy()
+frames = trajectory["observation_256"].numpy()
 vis_trajectory = einops.rearrange(frames, "b c h w -> b h w c")
 vis_images = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
 
@@ -84,7 +85,7 @@ if GET_ALL:
         cur_ds = iter(traj_dataset.dataset_dict[dataset_name])
         for _ in range(10):
             trajectory = next(cur_ds)
-            frames = trajectory["observation"].numpy()
+            frames = trajectory["observation_256"].numpy()
         vis_trajectory = einops.rearrange(frames, "b c h w -> b h w c")
         vis_images = [Image.fromarray(x) for x in (vis_trajectory * 255).astype(np.uint8)]
 
@@ -97,6 +98,9 @@ if GEN_VIS:
     if GET_ALL:
         cur_name = dataset_names[0]
         vis_images, gen_flow = ds_frame_dict[cur_name]
+
+    # Images only.
+    display.Image(as_gif(vis_images, duration=500))
 
     # Overlay as arrows
     vis_flow = einops.rearrange(gen_flow, "b c h w -> b h w c").cpu().numpy()
