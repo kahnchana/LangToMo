@@ -1,3 +1,5 @@
+import datetime
+
 from evdev import InputDevice, categorize, ecodes
 from xarm.wrapper import XArmAPI
 
@@ -83,9 +85,15 @@ class xArm7GripperEnv:
 
 
 class JSController(xArm7GripperEnv):
-    def __init__(self, *args, input_device="/dev/input/event15", **kwargs):
+    def __init__(self, *args, input_device="/dev/input/event15", save_actions="", **kwargs):
         super().__init__(*args, **kwargs)
         self.device = InputDevice(input_device)
+        self.save_actions = len(save_actions) > 0
+        self.save_root = save_actions
+        save_path = datetime.datetime.now().strftime(f"{self.save_root}/actions_%Y-%m-%d_%H-%M-%S") + ".csv"
+        self.action_save_path = save_path
+        if self.save_actions:
+            self.setup_action_save()
 
     @staticmethod
     def parse_key(key):
@@ -100,6 +108,22 @@ class JSController(xArm7GripperEnv):
                 print(f"Unknown key: {key}")
         return key
 
+    def setup_action_save(self):
+        with open(self.action_save_path, "w") as f:
+            f.write("abs_pos, abs_rot, gripper, rel_pos, rel_rot\n")
+        print(f"Saving actions to {self.action_save_path}")
+
+    def save_action(self, rel_action):
+        self.update_arm_state()
+        rel_rot = (0, 0, 0)
+        with open(self.action_save_path, "a") as f:
+            f.write(f"{self.arm_pos}, {self.arm_rot}, {self.gripper_pos}, {rel_action}, {rel_rot}\n")
+
+    def reset_save_file(self):
+        save_path = datetime.datetime.now().strftime(f"{self.save_root}/actions_%Y-%m-%d_%H-%M-%S") + ".csv"
+        self.action_save_path = save_path
+        self.setup_action_save()
+
     def controller_listen(self):
         for event in self.device.read_loop():
             if event.type == ecodes.EV_KEY:
@@ -111,15 +135,19 @@ class JSController(xArm7GripperEnv):
                     if key == "BTN_A":
                         print("z-axis plus")
                         self.z_plus()
+                        self.save_action((0, 0, self.step_size))
                     elif key == "BTN_C":
                         print("z-axis minus")
                         self.z_minus()
+                        self.save_action((0, 0, -self.step_size))
                     elif key == "BTN_X":
                         print("Close gripper")
                         self.gripper_close()
+                        self.save_action((0, 0, 0))
                     elif key == "BTN_B":
                         print("Open gripper")
                         self.gripper_open()
+                        self.save_action((0, 0, 0))
                     elif key == "BTN_Z":
                         print("Robot State")
                         self.update_arm_state()
@@ -129,6 +157,9 @@ class JSController(xArm7GripperEnv):
                     elif key == "BTN_TR":
                         print("Clean Errors")
                         self.clean_errors()
+                    elif key == "BTN_TL":
+                        print("Reset save file.")
+                        self.reset_save_file()
 
             elif event.type == ecodes.EV_ABS:
                 code = ecodes.ABS[event.code]
@@ -140,9 +171,11 @@ class JSController(xArm7GripperEnv):
                         if dx > 0:
                             print("x-axis plus")
                             self.y_plus()  # misaligned coord systems
+                            self.save_action((0, self.step_size, 0))
                         else:
                             print("x-axis minus")
                             self.y_minus()  # misaligned coord systems
+                            self.save_action((0, -self.step_size, 0))
 
                 elif code == "ABS_Y":
                     dy = (value - 128) / 128.0
@@ -150,13 +183,16 @@ class JSController(xArm7GripperEnv):
                         if dy < 0:
                             print("y-axis plus")
                             self.x_plus()  # misaligned coord systems
+                            self.save_action((self.step_size, 0, 0))
                         else:
                             print("y-axis minus")
                             self.x_minus()  # misaligned coord systems
+                            self.save_action((-self.step_size, 0, 0))
 
                 # time.sleep(0.05)  # Reduce update rate
 
 
+save_path = "/nfs/ws2/kanchana/real_world/actions"
 contorller_args = {
     "robot_ip": "130.245.125.30",
     "arm_speed": 1000,
@@ -164,10 +200,12 @@ contorller_args = {
     "step_size": 10,
     "grip_size": 100,
     "input_device": "/dev/input/event15",
+    "save_actions": save_path,
 }
 while True:
     try:
         with JSController(**contorller_args) as arm:
+            # arm.setup_action_save
             arm.controller_listen()
     except KeyboardInterrupt:
         break
