@@ -20,6 +20,7 @@ import wandb
 from src import inference
 from src.dataset import calvin_dataset, flow_utils, metaworld
 from src.dataset import openx_trajectory_dataset as openx_traj
+from src.dataset import realworld_dataset
 from src.model import diffusion
 
 
@@ -191,6 +192,18 @@ def get_dataset(config, accelerator=None):
                 val_dataset, batch_size=config.eval_batch_size, num_workers=config.num_gpu
             )
 
+    elif config.dataset == "realworld":
+        train_root = "/nfs/ws2/kanchana/real_world/dataset_v1"
+        val_root = "/nfs/ws2/kanchana/real_world/dataset_v1_val"
+        dataset = realworld_dataset.TripletFrameDataset(root_dir=train_root, k=10)
+        train_dataloader = torch.utils.data.DataLoader(
+            dataset, batch_size=config.train_batch_size, shuffle=False, num_workers=config.num_gpu
+        )
+        val_dataset = realworld_dataset.TripletFrameDataset(root_dir=val_root, k=10)
+        val_dataloader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=config.num_gpu
+        )
+
     elif config.dataset == "metaworld":
         DATA_ROOT = "/home/kanchana/data/metaworld"
         target_size = (config.image_size, config.image_size)
@@ -274,9 +287,9 @@ def generate_flow_online(config, image_condition, flow_model, flow_transform, ge
 
 
 def evaluate(dataloader, model, flow_model, flow_transform, config, split="train"):
-    RUN_COUNT = 25
+    RUN_COUNT = min(25, len(dataloader))
     if config.debug:
-        RUN_COUNT = 3
+        RUN_COUNT = min(3, len(dataloader))
     count = 0
     total_loss = 0
     vis_index = np.random.choice(RUN_COUNT)
