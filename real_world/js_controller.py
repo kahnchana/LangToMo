@@ -1,5 +1,7 @@
+import argparse
 import datetime
 
+import cv2
 from evdev import InputDevice, categorize, ecodes
 from xarm.wrapper import XArmAPI
 
@@ -17,6 +19,7 @@ class xArm7GripperEnv:
         self.gripper_pos: int = None
         self.gripper_pos_counter: int = 0
         self.wait = False
+        self.save_video = False
 
     def update_arm_state(self):
         _, arm_pos = self.arm.get_position(is_radian=False)
@@ -45,6 +48,9 @@ class xArm7GripperEnv:
     def __exit__(self, *arg, **kwargs):
         self.arm.disconnect()
         print("Disconnected")
+
+        if self.save_video:
+            self.video_recorder.close()
 
     def x_plus(self):
         self.arm.set_position(x=self.step_size, relative=True, wait=self.wait, speed=self.arm_speed)
@@ -85,7 +91,16 @@ class xArm7GripperEnv:
 
 
 class JSController(xArm7GripperEnv):
-    def __init__(self, *args, input_device="/dev/input/event15", save_actions="", **kwargs):
+    def __init__(
+        self,
+        *args,
+        input_device="/dev/input/event15",
+        save_actions="",
+        save_video="",
+        webcam=0,
+        flip_view=True,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.device = InputDevice(input_device)
         self.save_actions = len(save_actions) > 0
@@ -94,6 +109,10 @@ class JSController(xArm7GripperEnv):
         self.action_save_path = save_path
         if self.save_actions:
             self.setup_action_save()
+        self.save_video = len(save_video) > 0
+        self.webcam = webcam
+        self.flip_view = flip_view
+        self.video_recorder = VideoRecorder(save_video, webcam=webcam) if self.save_video else None
 
     @staticmethod
     def parse_key(key):
@@ -118,11 +137,15 @@ class JSController(xArm7GripperEnv):
         rel_rot = (0, 0, 0)
         with open(self.action_save_path, "a") as f:
             f.write(f"{self.arm_pos}, {self.arm_rot}, {self.gripper_pos}, {rel_action}, {rel_rot}\n")
+        if self.save_video:
+            self.video_recorder.record_frame()
 
     def reset_save_file(self):
         save_path = datetime.datetime.now().strftime(f"{self.save_root}/actions_%Y-%m-%d_%H-%M-%S") + ".csv"
         self.action_save_path = save_path
         self.setup_action_save()
+        if self.save_video:
+            self.video_recorder.reset()
 
     def controller_listen(self):
         for event in self.device.read_loop():
@@ -167,8 +190,9 @@ class JSController(xArm7GripperEnv):
 
                 if code == "ABS_X":
                     dx = (value - 128) / 128.0  # Normalize to -1..1
+                    cond = (dx > 0) if self.flip_view else (dx < 0)  # arm pos changes
                     if abs(dx) > 0.2:
-                        if dx > 0:
+                        if cond:
                             print("x-axis plus")
                             self.y_plus()  # misaligned coord systems
                             self.save_action((0, self.step_size, 0))
@@ -179,8 +203,9 @@ class JSController(xArm7GripperEnv):
 
                 elif code == "ABS_Y":
                     dy = (value - 128) / 128.0
+                    cond = (dy > 0) if self.flip_view else (dy < 0)  # arm pos changes
                     if abs(dy) > 0.2:
-                        if dy < 0:
+                        if cond:
                             print("y-axis plus")
                             self.x_plus()  # misaligned coord systems
                             self.save_action((self.step_size, 0, 0))
@@ -192,15 +217,61 @@ class JSController(xArm7GripperEnv):
                 # time.sleep(0.05)  # Reduce update rate
 
 
-save_path = "/nfs/ws2/kanchana/real_world/actions"
+class VideoRecorder:
+    def __init__(self, video_dir, frame_size=(512, 512), fps=3.0, webcam=0):
+        self.dir = video_dir
+        self.video_path = datetime.datetime.now().strftime(f"{video_dir}/video_%Y-%m-%d_%H-%M-%S.mp4")
+        self.frame_size = frame_size
+        self.fps = fps
+        self.webcam = webcam
+        self.setup()
+
+    def setup(self):
+        self.cap = cv2.VideoCapture(self.webcam)
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_size[0])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_size[1])
+        self.writer = cv2.VideoWriter(self.video_path, cv2.VideoWriter_fourcc(*"mp4v"), self.fps, self.frame_size)
+
+    def record_frame(self):
+        ret, frame = self.cap.read()
+        if ret:
+            frame = cv2.resize(frame, self.frame_size)
+            self.writer.write(frame)
+        else:
+            print("Warning: Failed to capture frame")
+
+    def reset(self):
+        self.close()
+        self.video_path = datetime.datetime.now().strftime(f"{self.dir}/video_%Y-%m-%d_%H-%M-%S.mp4")
+        self.setup()
+
+    def close(self):
+        self.cap.release()
+        self.writer.release()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video", action="store_true", default=False)
+    parser.add_argument("--fps", type=int, default=2)
+    parser.add_argument("--frame_size", type=int, nargs=2, default=(512, 512))
+    return parser.parse_args()
+
+
+# args = parse_args()
+save_path = "/nfs/ws2/kanchana/real_world"
 contorller_args = {
-    "robot_ip": "130.245.125.30",
+    "robot_ip": "130.245.125.40",
     "arm_speed": 1000,
     "gripper_speed": 1000,
     "step_size": 10,
     "grip_size": 100,
     "input_device": "/dev/input/event15",
-    "save_actions": save_path,
+    "save_actions": f"{save_path}/actions",
+    "save_video": f"{save_path}/videos",
+    "webcam": 2,
+    "flip_view": False,
 }
 while True:
     try:
