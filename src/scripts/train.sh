@@ -111,3 +111,18 @@ python src/train_online.py \
     --num-gpu 4 \
     --port 8809 \
     --debug
+
+# Real world fine-tune.
+python src/train_online.py \
+    --dataset realworld \
+    --train-batch-size 32 \
+    --eval-batch-size 4 \
+    --image-size 128 \
+    --lr 1e-4 \
+    --steps 300_000 \
+    --prev-flow \
+    --output-dir experiments/rw_001 \
+    --pretrained experiments/ox_ds7_001/model \
+    --num-gpu 4 \
+    --port 8809 \
+    --debug
