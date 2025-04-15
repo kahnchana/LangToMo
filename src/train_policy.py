@@ -92,10 +92,10 @@ def generate_flow_online(config, image_condition, flow_model, flow_transform):
 def get_dataset(config):
     if config.dataset == "metaworld":
         DATA_ROOT = "/home/kanchana/data/metaworld/mw_traj"
-        train_dir = f"{DATA_ROOT}/door-open-v2-goal-observable"
-        train_dataset = supervised_dataset.SupervisedDataset(root_dir=train_dir, k=10)
-        val_dir = f"{DATA_ROOT}/door-close-v2-goal-observable"
-        val_dataset = supervised_dataset.SupervisedDataset(root_dir=val_dir, k=10)
+        train_dir = [f"{DATA_ROOT}/{d}" for d in supervised_dataset.DATASET_LIST]
+        train_dataset = supervised_dataset.SupervisedDataset(root_dir_list=train_dir, k=10)
+        val_dir = f"{DATA_ROOT}/{supervised_dataset.DATASET_LIST[0]}"
+        val_dataset = supervised_dataset.SupervisedDataset(root_dir_list=val_dir, k=10)
 
         train_dataloader = torch.utils.data.DataLoader(
             train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=4
@@ -162,6 +162,7 @@ def train_loop(config):
     # Debug code.
     if config.debug:
         config.evaluate_interval_steps = 10
+        config.save_interval_steps = 10
 
     # Load Data.
     train_dataloader, val_dataloader = get_dataset(config)
@@ -255,7 +256,8 @@ def train_loop(config):
         # Save the model.
         if accelerator.is_main_process:
             if (step + 1) % config.save_interval_steps == 0 or step == config.num_train_steps:
-                model.module.save_pretrained(f"{config.output_dir}/model")
+                unwrapped_model = accelerator.unwrap_model(model)
+                unwrapped_model.save_pretrained(f"{config.output_dir}/model")
                 accelerator.save_state(f"{config.output_dir}/train_state")
                 with open(f"{config.output_dir}/last_step.txt", "w") as f:
                     f.write(str(step))
