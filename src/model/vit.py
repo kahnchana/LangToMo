@@ -3,13 +3,12 @@ import transformers
 from torchvision.models import vision_transformer
 
 
-def get_vit_tiny_hf(image_size=128, patch_size=16, in_channels=5):
+def get_vit_tiny_hf(image_size=128, patch_size=16, in_channels=5, action_space=7):
     # Model Settings.
     hidden_dim = 192
     num_layers = 12
     num_heads = 3
     mlp_dim = 4 * hidden_dim
-    action_space = 7
 
     model_config = transformers.ViTConfig(
         hidden_size=hidden_dim,

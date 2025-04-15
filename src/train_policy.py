@@ -5,45 +5,57 @@ This file trains a action policy network conditioned on optical flow inputs (and
 import argparse
 import dataclasses
 import os
-import random
+from functools import partial
 
 import accelerate
-import numpy as np
 import torch
+import torch.nn.functional as F
 import tqdm
 from diffusers import optimization
+from torchvision.models import optical_flow
 
-from src.dataset import calvin_dataset
+from src.dataset import supervised_dataset
 from src.model import vit
 
 
 @dataclasses.dataclass
 class TrainingConfig:
-    image_size: int = 128  # the generated image resolution
-    train_batch_size: int = 128
-    eval_batch_size: int = 128  # how many images to sample during evaluation
     num_gpu: int = 4
-    data_root: str = "/home/kanchana/data/calvin/task_ABC_D"
+    dataset: str = "metaworld"
+    train_batch_size: int = 32
+    eval_batch_size: int = 32  # how many images to sample during evaluation
     learning_rate: float = 1e-4
-    lr_warmup_steps: int = 500
-    num_epochs: int = 100
-    model_size: str = "T"
-    eval_every_n_epochs: int = 1
-    save_model_epochs: int = 1
-    use_image: bool = False
+    num_train_steps: int = 10_000
+    evaluate_interval_steps: int = 2_500
+    save_interval_steps: int = 5_000
     gradient_accumulation_steps: int = 1
+    lr_warmup_steps: int = 100
     mixed_precision: str = "fp16"  # `no` for float32, `fp16` for automatic mixed precision
+    image_size: int = 128  # the generated image resolution
+    pretrained: str = None
+    resume: bool = False
+    wandb_id: str = None
+    output_dir: str = "experiments/mw_policy_001"  # the model name locally
     seed: int = 0
-    output_dir: str = "experiments/policy_001"  # the model name locally and on the HF Hub
+    port: int = 8807
     debug: bool = False
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-gpu", type=int, default=4)
-    parser.add_argument("--use-image", action="store_true", default=False)
-    parser.add_argument("--output-dir", type=str, default="experiments/policy_001")
-    parser.add_argument("--model-size", type=str, default="T", choices=["T", "B"])
+    parser.add_argument("--dataset", type=str, default="calvin")
+    parser.add_argument("--train-batch-size", type=int, default=32)
+    parser.add_argument("--eval-batch-size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
+    parser.add_argument("--steps", type=int, default=10_000, dest="num_train_steps")
+    parser.add_argument("--image-size", type=int, default=128)
+    parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--resume", action="store_true", default=False)
+    parser.add_argument("--wandb-id", type=str, default=None)
+    parser.add_argument("--output-dir", type=str, default="test_002")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--port", type=int, default=8807)
     parser.add_argument("--debug", action="store_true", default=False)
     args = parser.parse_args()
     return args
@@ -60,23 +72,59 @@ def update_config_with_args(config: TrainingConfig, opts: argparse.Namespace) ->
     return dataclasses.replace(config, **config_dict)
 
 
-def evaluate(config, epoch, dataloader, model, split="train", eval_steps=-1):
+def generate_flow_online(config, image_condition, flow_model, flow_transform):
+    flow_input, _ = flow_transform(image_condition, image_condition)  # b, t, c, h, w
+    start_im = flow_input[:, 0]  # frame t
+    end_im = flow_input[:, 2]  # frame t+k
+    with torch.no_grad():
+        flow_tensor = flow_model(start_im, end_im, num_flow_updates=6)[-1]  # b, c, h, w
+    image_size = config.image_size
+    scale = 256 / image_size  # Hard Coded.
+    flow_tensor = F.interpolate(flow_tensor, size=(image_size, image_size), mode="bilinear", align_corners=True)
+    flow_tensor = flow_tensor / scale
+
+    flow_dim = flow_tensor.shape[-1]  # Image size is always square.
+    normalized_flow_tensor = (flow_tensor + flow_dim) / (flow_dim * 2)
+
+    return normalized_flow_tensor
+
+
+def get_dataset(config):
+    if config.dataset == "metaworld":
+        DATA_ROOT = "/home/kanchana/data/metaworld/mw_traj"
+        train_dir = f"{DATA_ROOT}/door-open-v2-goal-observable"
+        train_dataset = supervised_dataset.SupervisedDataset(root_dir=train_dir, k=10)
+        val_dir = f"{DATA_ROOT}/door-close-v2-goal-observable"
+        val_dataset = supervised_dataset.SupervisedDataset(root_dir=val_dir, k=10)
+
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=4
+        )
+        val_dataloader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=4
+        )
+    else:
+        raise NotImplementedError(f"Dataset: {config.dataset} not implemented.")
+
+    return train_dataloader, val_dataloader
+
+
+def evaluate(dataloader, model, flow_model, flow_transform, config, split="train"):
     # Calculate loss over the dataset.
+    eval_steps = -1
     if config.debug:
         eval_steps = 3  # Debug code
     count = 0
     total_loss = 0
     total_steps = eval_steps if eval_steps > 0 else len(dataloader)
     for idx, batch in tqdm.tqdm(enumerate(dataloader), total=total_steps):
-        flow = batch["flow"]
-        if config.use_image:
-            image = batch["image"]
-            flow = torch.cat([flow, image], dim=1)
-        relative_action = batch["relative_action"]
-
+        clean_flow = generate_flow_online(config, batch["observation_256"], flow_model, flow_transform)
+        im_t, im_tpi = batch["observation"][:, 0], batch["observation"][:, 1]  # b, c, h, w
+        model_input = torch.cat([im_t, im_tpi, clean_flow], dim=1)
+        target_action = batch["action"]  # b, 4
         with torch.no_grad():
-            pred_action = model(flow, return_dict=False)[0]
-            loss = torch.mean((pred_action - relative_action) ** 2)
+            pred_action = model(model_input, return_dict=False)[0]
+            loss = torch.mean((pred_action - target_action) ** 2)
 
         total_loss += loss.item()
         count += 1
@@ -89,7 +137,10 @@ def evaluate(config, epoch, dataloader, model, split="train", eval_steps=-1):
     return {f"{split}/loss": total_loss}
 
 
-def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_scheduler):
+def train_loop(config):
+    # Set seed.
+    accelerate.utils.set_seed(config.seed)
+
     # Initialize accelerator and tensorboard logging
     accelerator = accelerate.Accelerator(
         mixed_precision=config.mixed_precision,
@@ -100,64 +151,119 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
     if accelerator.is_main_process:
         if config.output_dir is not None:
             os.makedirs(config.output_dir, exist_ok=True)
-        accelerator.init_trackers(
-            "LangToMo",
-            init_kwargs={"wandb": {"config": dataclasses.asdict(config), "group": "policy_net"}},
-        )
+            os.makedirs(f"{config.output_dir}/model", exist_ok=True)
+            os.makedirs(f"{config.output_dir}/train_state", exist_ok=True)
+        log_init_args = {"wandb": {"config": dataclasses.asdict(config), "group": "policy_net"}}
+        if config.resume:
+            log_init_args["wandb"]["resume"] = "must"
+            log_init_args["wandb"]["id"] = config.wandb_id
+        accelerator.init_trackers("LangToMo", init_kwargs=log_init_args)
 
-    # Prepare everything, no specific inputs order to remember for prepare function.
-    model, optimizer, train_dataloader, val_dataloader, lr_scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, val_dataloader, lr_scheduler
+    # Debug code.
+    if config.debug:
+        config.evaluate_interval_steps = 10
+
+    # Load Data.
+    train_dataloader, val_dataloader = get_dataset(config)
+
+    # Setup model.
+    if config.resume:
+        config.pretrained = f"{config.output_dir}/model"
+
+    channels = 8
+    model = vit.get_vit_tiny_hf(image_size=128, patch_size=16, in_channels=channels, action_space=4)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+    lr_scheduler = optimization.get_cosine_schedule_with_warmup(
+        optimizer=optimizer,
+        num_warmup_steps=(config.lr_warmup_steps * config.num_gpu),
+        num_training_steps=(config.num_train_steps * config.num_gpu),
     )
 
-    global_step = 0
+    # Setup flow model.
+    flow_model = optical_flow.raft_large(weights=optical_flow.Raft_Large_Weights.DEFAULT, progress=False).eval()
+    flow_transform = optical_flow.Raft_Large_Weights.DEFAULT.transforms()
 
-    for epoch in range(config.num_epochs):
-        progress_bar = tqdm.tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
-        progress_bar.set_description(f"Epoch {epoch}")
+    # Prepare everything, no specific inputs order to remember for prepare function.
+    model, optimizer, train_dataloader, val_dataloader, lr_scheduler, flow_model, flow_transform = accelerator.prepare(
+        model, optimizer, train_dataloader, val_dataloader, lr_scheduler, flow_model, flow_transform
+    )
 
-        for step, batch in enumerate(train_dataloader):
-            if config.debug:
-                if step > 2:  # Debug Code
-                    break
+    # Define evaluation function.
+    eval_func = partial(evaluate, flow_model=flow_model, flow_transform=flow_transform, config=config)
 
-            flow = batch["flow"]
-            if config.use_image:
-                image = batch["image"]
-                flow = torch.cat([flow, image], dim=1)
-            relative_action = batch["relative_action"]
+    data_iter = iter(train_dataloader)
+    step = 0
+    if config.resume:
+        # Load last step.
+        with open(f"{config.output_dir}/last_step.txt", "r") as f:
+            step = int(f.read().strip())
 
-            with accelerator.accumulate(model):
-                pred_action = model(flow, return_dict=False)[0]
-                loss = torch.nn.functional.mse_loss(pred_action, relative_action)
-                accelerator.backward(loss)
+        # Load train state.
+        accelerator.load_state(f"{config.output_dir}/train_state")
 
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
+    progress_bar = tqdm.tqdm(initial=step, total=config.num_train_steps, disable=not accelerator.is_local_main_process)
+    progress_bar.set_description("Training")
 
-            progress_bar.update(1)
-            logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
-            progress_bar.set_postfix(**logs)
-            accelerator.log(logs, step=global_step)
-            global_step += 1
+    while step < config.num_train_steps:
+        # Handle infinite dataloader.
+        try:
+            batch = next(data_iter)
+        except StopIteration:
+            # Epoch ended, restart iterator
+            data_iter = iter(train_dataloader)
+            batch = next(data_iter)
+        except Exception as e:
+            print(e)
+            continue
 
+        im_t, im_tpi = batch["observation"][:, 0], batch["observation"][:, 1]  # b, c, h, w
+        target_action = batch["action"]  # b, 4
+
+        # Generate flow online.
+        clean_flow = generate_flow_online(config, batch["observation_256"], flow_model, flow_transform)  # b, c, h, w
+        model_input = torch.cat([im_t, im_tpi, clean_flow], dim=1)
+
+        with accelerator.accumulate(model):
+            pred_action = model(model_input, return_dict=False)[0]
+            loss = torch.nn.functional.mse_loss(pred_action, target_action)
+            accelerator.backward(loss)
+
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            lr_scheduler.step()
+            optimizer.zero_grad()
+
+        progress_bar.update(1)
+        logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": step}
+        progress_bar.set_postfix(**logs)
+
+        # Run evaluation and visualization.
+        eval_log_data = {}
+        if (step + 1) % config.evaluate_interval_steps == 0 or step == config.num_train_steps:
+            train_logs = eval_func(train_dataloader, model, split="train")
+            val_logs = eval_func(val_dataloader, model, split="val")
+            eval_log_data = {**train_logs, **val_logs}
+            if accelerator.is_main_process:
+                if config.debug:
+                    print(eval_log_data)
+
+        # Log to W&B
+        accelerator.log({**logs, **eval_log_data}, step=step)
+
+        # Save the model.
         if accelerator.is_main_process:
-            if (epoch + 1) % config.eval_every_n_epochs == 0 or epoch == config.num_epochs - 1:
-                train_set_stats = evaluate(config, epoch, train_dataloader, model, split="train", eval_steps=100)
-                val_set_stats = evaluate(config, epoch, val_dataloader, model, split="val")
-                log_data = {
-                    "epoch": epoch,
-                    **train_set_stats,
-                    **val_set_stats,
-                }
-                accelerator.log(log_data, step=global_step)
-                print(log_data)
+            if (step + 1) % config.save_interval_steps == 0 or step == config.num_train_steps:
+                model.module.save_pretrained(f"{config.output_dir}/model")
+                accelerator.save_state(f"{config.output_dir}/train_state")
+                with open(f"{config.output_dir}/last_step.txt", "w") as f:
+                    f.write(str(step))
 
-            if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
-                model.save_pretrained(config.output_dir)
+        # End training.
+        step += 1
+        if step >= config.num_train_steps:
+            break
 
 
 if __name__ == "__main__":
@@ -165,52 +271,5 @@ if __name__ == "__main__":
     opts = parse_args()
     config = update_config_with_args(config, opts)
 
-    # Set global seeds.
-    random.seed(config.seed)
-    np.random.seed(config.seed)
-    torch.manual_seed(config.seed)
-    torch.cuda.manual_seed_all(config.seed)  # If using CUDA
-
-    CAPTION_FILE = f"{config.data_root}/captions.json"
-    ACTION_FILE = f"{config.data_root}/relative_actions.json"
-
-    transform, _ = calvin_dataset.get_joint_transforms(image_size=(128, 128))  # Convert to tensor and resize only.
-    train_root = f"{config.data_root}/robot_training"
-    val_root = f"{config.data_root}/robot_validation"
-
-    train_captions = os.path.join(train_root, "captions.json")
-    val_captions = os.path.join(val_root, "captions.json")
-    train_actions = os.path.join(train_root, "relative_actions.json")
-    val_actions = os.path.join(val_root, "relative_actions.json")
-
-    train_dataset = calvin_dataset.RobotTrainingDataset(
-        train_root, train_captions, train_actions, transform=transform, include_captions=False, include_actions=True
-    )
-    val_dataset = calvin_dataset.RobotTrainingDataset(
-        val_root, val_captions, val_actions, transform=transform, include_captions=False, include_actions=True
-    )
-
-    num_workers = min(4, config.num_gpu)
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=num_workers
-    )
-    val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=num_workers
-    )
-
-    channels = 5 if config.use_image else 2
-    if config.model_size == "T":
-        model = vit.get_vit_tiny_hf(image_size=128, patch_size=16, in_channels=channels)
-    elif config.model_size == "B":
-        model = vit.get_vit_base_hf(image_size=128, patch_size=16, in_channels=channels)
-    else:
-        raise ValueError(f"Unknown model size: {config.model_size}")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
-    lr_scheduler = optimization.get_cosine_schedule_with_warmup(
-        optimizer=optimizer,
-        num_warmup_steps=config.lr_warmup_steps,
-        num_training_steps=(len(train_dataloader) * config.num_epochs),
-    )
-
-    args = (config, model, optimizer, train_dataloader, val_dataloader, lr_scheduler)
+    args = (config,)
     accelerate.notebook_launcher(train_loop, args, num_processes=config.num_gpu)
