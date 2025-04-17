@@ -112,6 +112,23 @@ python src/train_online.py \
     --port 8809 \
     --debug
 
+# OpenX ucsd_pick_and_place 2-frame.
+python src/train_online.py \
+    --dataset openx \
+    --sub-datasets ucsd_pick_and_place_2frame \
+    --val-sub-datasets ucsd_pick_and_place_dataset_converted_externally_to_rlds \
+    --train-batch-size 32 \
+    --eval-batch-size 16 \
+    --image-size 128 \
+    --lr 1e-5 \
+    --steps 10_000 \
+    --prev-flow \
+    --output-dir experiments/ox_xarm_002 \
+    --pretrained experiments/ox_ds7_002/model \
+    --num-gpu 4 \
+    --port 8809 \
+    --debug
+
 # Real world fine-tune.
 python src/train_online.py \
     --dataset realworld \
@@ -125,4 +142,34 @@ python src/train_online.py \
     --pretrained experiments/ox_ds7_001/model \
     --num-gpu 4 \
     --port 8809 \
+    --debug
+
+
+# Real world fine-tune 2-frame.
+python src/train_online.py \
+    --dataset realworld_2f \
+    --train-batch-size 32 \
+    --eval-batch-size 4 \
+    --image-size 128 \
+    --lr 1e-5 \
+    --steps 50_000 \
+    --prev-flow \
+    --output-dir experiments/rw_003 \
+    --pretrained experiments/ox_xarm_002/model \
+    --num-gpu 4 \
+    --port 8809 \
+    --debug
+
+
+# Train policy 
+python src/train_policy.py \
+    --dataset metaworld \
+    --train-batch-size 128 \
+    --eval-batch-size 32 \
+    --image-size 128 \
+    --lr 1e-4 \
+    --steps 100_000 \
+    --output-dir experiments/mw_policy_002 \
+    --num-gpu 3 \
+    --port 8808 \
     --debug
