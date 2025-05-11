@@ -1,0 +1,17 @@
+.DS_Store
+
+# Optional: Ignore any other common files or directories
+# Node modules (if you use npm or yarn)
+node_modules/
+
+# Ignore build files (if any)
+dist/
+build/
+
+# Ignore IDE/editor-specific files
+.vscode/
+.idea/
+*.swp
+
+# Ignore temporary files
+*.log

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LangToMo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="favicon.png" sizes="32x32">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f4f4f9;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .video-grid {
+      width: 100%;
+      max-width: 98%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    .video-grid video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .video-caption {
+      text-align: center;
+      margin-top: 1rem;
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    .content-section {
+      padding-top: 2rem;
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem 3rem;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 95%;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 0.5rem;
+      color: #4A90E2;
+    }
+
+    p {
+      font-size: 1.25rem;
+      color: #666;
+    }
+
+    .authors {
+      margin: 1rem 0;
+      font-size: 1.1rem;
+      color: #444;
+      line-height: 1.6;
+    }
+    
+    .authors a {
+      color: #4A90E2;
+      text-decoration: none;
+    }
+    
+    .authors a:hover {
+      text-decoration: underline;
+    }
+
+    .institution {
+      font-style: italic;
+      margin-top: 0.5rem;
+      color: #555;
+    }
+    
+    .abstract, .teaser-figure {
+      text-align: center;
+      max-width: 800px;
+      margin: 2rem auto;
+    }
+    
+    .abstract {
+      text-align: justify;
+      text-justify: inter-word;
+      line-height: 1.8;
+    }
+    
+    .abstract h2 {
+      color: #4A90E2;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    
+    .abstract p {
+      font-size: 1.1rem;
+      color: #444;
+    }
+    
+    .abstract em {
+      font-style: italic;
+      font-weight: 500;
+    }
+    
+    .langtomo-highlight {
+      background: linear-gradient(90deg, #4A90E2, #2ecc71);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent; /* Fallback for non-WebKit browsers */
+      font-weight: 600;
+      padding: 0 4px;
+      position: relative;
+      display: inline-block;
+    }
+    
+    .langtomo-highlight::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, #4A90E2, #2ecc71);
+      transform: scaleX(0);
+      transform-origin: right;
+      transition: transform 0.3s ease;
+    }
+    
+    .langtomo-highlight:hover::after {
+      transform: scaleX(1);
+      transform-origin: left;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="content-section">
+    <div class="container">
+      <h1>Pixel Motion as Universal Representation for Robot Control</h1>
+      <div class="authors">
+        <div>
+          <a href="https://scholar.google.com/citations?user=K2WBZTwAAAAJ&hl=en" target="_blank">Kanchana Ranasinghe</a>,
+          <a href="https://scholar.google.com/citations?user=qkyC7KQAAAAJ&hl=en" target="_blank">Xiang Li</a>,
+          <a href="https://cfmata.github.io/" target="_blank">Cristina Mata</a>,
+          <a href="https://scholar.google.com/citations?user=qIn5k_sAAAAJ&hl=en" target="_blank">Jongwoo Park</a>,
+          <a href="https://scholar.google.com/citations?user=vcw0TJIAAAAJ&hl=en" target="_blank">Michael S Ryoo</a>
+        </div>
+        <div class="institution">Stony Brook University</div>
+      </div>
+      <p><span class="langtomo-highlight">LangToMo</span>: A hierarchical VLA framework for robot control that uses intermediate motion representations.</p>
+      
+      <div class="teaser-figure">
+        <img src="media/teaser_fig.png" alt="LangToMo Framework" style="max-width: 100%; height: auto; border-radius: 8px;">
+      </div>
+      
+      <div class="abstract">
+        <h2>Abstract</h2>
+        <p>We present LangToMo, a vision-language-action framework structured as a dual-system architecture that uses pixel motion forecasts as intermediate representations. 
+        Our high-level <em>System 2</em>, an image diffusion model, generates text-conditioned pixel motion sequences from a single frame to guide robot control.
+        Pixel motion—a universal, interpretable, and motion-centric representation—can be extracted from videos in a self-supervised manner, enabling diffusion model training on web-scale video-caption data.
+        Treating generated pixel motion as learned <em>universal representations</em>, our low level <em>System 1</em> module translates these into robot actions via motion-to-action mapping functions, which can be either hand-crafted or learned with minimal supervision.
+        System 2 operates as a high-level policy applied at sparse temporal intervals, while System 1 acts as a low-level policy at dense temporal intervals.
+        This hierarchical decoupling enables flexible, scalable, and generalizable robot control under both unsupervised and supervised settings, bridging the gap between language, motion, and action.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin: 10px 40px;">
+    <h2>Real World Environment Videos</h2>
+  </div>
+  <div class="video-grid" id="videoHeader">
+      <video src="media/rw_videos/vid01.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid02.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid03.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid04.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid10.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid09.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid07.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid08.webm" autoplay loop muted></video>
+      <video src="media/rw_videos/vid06.webm" autoplay loop muted></video>
+  </div>
+  <div class="video-caption">
+    <p>NOTE: Above videos from our <strong>real world environment</strong> are run at 3x speed for visualization purposes.</p>
+  </div>
+
+  <style>
+    .video-grid-small {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      padding: 10px;
+    }
+    .video-grid-small video {
+      width: 100%;
+      height: auto;
+    }
+  </style>
+  <div style="margin: 10px 40px;">
+    <h2>Meta-World Simulated Environment</h2>
+  </div>
+  <div class="video-grid-small" id="videoHeader">
+    <video src="media/mw_synth/door/vid_6.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_7.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_8.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_9.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_1.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_2.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_3.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_4.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/door/vid_5.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/faucet/vid_1.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/faucet/vid_2.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/faucet/vid_3.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/faucet/vid_4.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/faucet/vid_5.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_1.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_2.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_3.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_4.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_5.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_6.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_7.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_8.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt1/vid_9.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt2/vid_1.webm" autoplay loop muted></video>    
+    <video src="media/mw_synth/bt2/vid_2.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt2/vid_3.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt2/vid_4.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt2/vid_5.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt2/vid_6.webm" autoplay loop muted></video>
+    <video src="media/mw_synth/bt2/vid_7.webm" autoplay loop muted></video>
+  </div>
+<div class="video-caption">
+  <p>NOTE: Above videos from the Meta-World simulated environment are run at 3x speed for visualization purposes.</p>
+</div>
+</body>
+</html>
