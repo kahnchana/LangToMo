@@ -183,6 +183,66 @@
         background: #555;
       }
     }
+    
+    .demo-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .demo-item {
+      flex: 1;
+      min-width: 250px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      height: 300px;
+      margin: 0 auto;
+    }
+    
+    .demo-arrow {
+      font-size: 1.5rem;
+      color: #4A90E2;
+      width: 100%;
+      text-align: center;
+      display: none;
+    }
+    
+    .demo-horizontal-arrow {
+      font-size: 1.5rem;
+      color: #4A90E2;
+      align-self: center;
+    }
+    
+    @media (max-width: 768px) {
+      .demo-container {
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+        padding: 0 1rem;
+        box-sizing: border-box;
+      }
+      .demo-row {
+        flex-direction: column;
+        align-items: center;
+      }
+      .demo-item {
+        width: 100%;
+        max-width: 100%;
+        margin: 0 auto 1rem;
+        padding: 0 1rem;
+        box-sizing: border-box;
+      }
+      .demo-arrow {
+        display: block !important;
+        margin: 10px 0;
+      }
+      .demo-horizontal-arrow {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -304,7 +364,7 @@
             <th style="padding: 1rem; text-align: center; font-weight: 600; color: #333;">handle-press</th>
             <th style="padding: 1rem; text-align: center; font-weight: 600; color: #333;">hammer</th>
             <th style="padding: 1rem; text-align: center; font-weight: 600; color: #333;">assembly</th>
-            <th style="padding: 1rem; text-align: center; font-weight: 600; color: #333; background-color: #f0f8ff;">Overall</th>
+            <th style="padding: 1rem; text-align: center; color: #333; background-color: #f0f8ff;">Overall</th>
           </tr>
         </thead>
         <tbody>
@@ -576,22 +636,24 @@
             <p style="margin: 0; color: #4A90E2; font-weight: 500;">Task Goal: <code style="background: #f5f5f5; padding: 0.2em 0.5em; border-radius: 4px; font-family: 'Courier New', monospace; color: #333; border: 1px solid #e0e0e0;">Place the strawberry in the tray.</code></p>
           </div>
           <div style="padding: 1.5rem 1.5rem 0;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;">
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+            <div class="demo-row" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Input Video</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_vis/01_vid.mp4" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
                 </div>
               </div>
-              <div style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+              <div class="demo-arrow" style="font-size: 1.5rem; color: #4A90E2; width: 100%; text-align: center; display: none;">↓</div>
+              <div class="demo-horizontal-arrow" style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Predicted Pixel Motions</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_vis/01_arrows.mp4" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
                 </div>
               </div>
-              <div style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+              <div class="demo-arrow" style="font-size: 1.5rem; color: #4A90E2; width: 100%; text-align: center; display: none;">↓</div>
+              <div class="demo-horizontal-arrow" style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Generated Actions</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_videos/vid08.webm" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
@@ -607,22 +669,24 @@
             <p style="margin: 0; color: #4A90E2; font-weight: 500;">Task Goal: <code style="background: #f5f5f5; padding: 0.2em 0.5em; border-radius: 4px; font-family: 'Courier New', monospace; color: #333; border: 1px solid #e0e0e0;">Place the corn in the bowl.</code></p>
           </div>
           <div style="padding: 1.5rem 1.5rem 0;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;">
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+            <div class="demo-row" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Input Video</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_vis/02_vid.mp4" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
                 </div>
               </div>
-              <div style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+              <div class="demo-arrow" style="font-size: 1.5rem; color: #4A90E2; width: 100%; text-align: center; display: none;">↓</div>
+              <div class="demo-horizontal-arrow" style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Predicted Pixel Motions</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_vis/02_arrows.mp4" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
                 </div>
               </div>
-              <div style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+              <div class="demo-arrow" style="font-size: 1.5rem; color: #4A90E2; width: 100%; text-align: center; display: none;">↓</div>
+              <div class="demo-horizontal-arrow" style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Generated Actions</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_videos/vid06.webm" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
@@ -638,22 +702,24 @@
             <p style="margin: 0; color: #4A90E2; font-weight: 500;">Task Goal: <code style="background: #f5f5f5; padding: 0.2em 0.5em; border-radius: 4px; font-family: 'Courier New', monospace; color: #333; border: 1px solid #e0e0e0;">Place the duck in the tray.</code></p>
           </div>
           <div style="padding: 1.5rem 1.5rem 0;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;">
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+            <div class="demo-row" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Input Video</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_vis/03_vid.mp4" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
                 </div>
               </div>
-              <div style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+              <div class="demo-arrow" style="font-size: 1.5rem; color: #4A90E2; width: 100%; text-align: center; display: none;">↓</div>
+              <div class="demo-horizontal-arrow" style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Predicted Pixel Motions</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_vis/03_arrows.mp4" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
                 </div>
               </div>
-              <div style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
-              <div style="flex: 1; text-align: center; display: flex; flex-direction: column; height: 300px;">
+              <div class="demo-arrow" style="font-size: 1.5rem; color: #4A90E2; width: 100%; text-align: center; display: none;">↓</div>
+              <div class="demo-horizontal-arrow" style="font-size: 1.5rem; color: #4A90E2; align-self: center;">→</div>
+              <div class="demo-item" style="flex: 1; min-width: 250px; text-align: center; display: flex; flex-direction: column; height: 300px; margin: 0 auto;">
                 <p style="margin: 0 0 0.5rem; font-weight: 500; color: #555;">Generated Actions</p>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
                   <video src="media/rw_videos/vid05.webm" style="height: 100%; max-height: 250px; border-radius: 8px; object-fit: contain;" autoplay loop muted></video>
