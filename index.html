@@ -147,6 +147,42 @@
       transform: scaleX(1);
       transform-origin: left;
     }
+    
+    /* Make results section scrollable on mobile */
+    @media (max-width: 768px) {
+      .results-section {
+        width: 100%;
+        max-width: 95%;
+        margin: 2rem auto;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 0 10px;
+      }
+
+      .results-section table {
+        width: auto;
+        min-width: 100%;
+        margin: 0;
+      }
+      
+      .results-section::-webkit-scrollbar {
+        height: 6px;
+      }
+      
+      .results-section::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 3px;
+      }
+      
+      .results-section::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+      }
+      
+      .results-section::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
+    }
   </style>
 </head>
 <body>
