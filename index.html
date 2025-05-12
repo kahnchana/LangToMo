@@ -179,76 +179,74 @@
         System 2 operates as a high-level policy applied at sparse temporal intervals, while System 1 acts as a low-level policy at dense temporal intervals.
         This hierarchical decoupling enables flexible, scalable, and generalizable robot control under both unsupervised and supervised settings, bridging the gap between language, motion, and action.</p>
       </div>
+
+      <div class="flowchart" style="margin: 4rem 0; overflow-x: auto;">
+        <h2 style="color: #4A90E2;">LangToMo Architecture</h2>
+        <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 2rem 0; min-width: 1000px; flex-wrap: nowrap;">
+          <!-- Input Section -->
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; min-width: 200px;">
+            <div style="text-align: center;">
+              <div style="background: #f0f8ff; padding: 1rem; border-radius: 8px; border: 2px solid #4A90E2;">
+                <p style="margin: 0; font-weight: 500;">"Open the door with handle"</p>
+              </div>
+              <p style="font-size: 0.9rem; color: #666; margin: 0.5rem 0 0;">Text Instruction</p>
+            </div>
+            <div style="font-size: 2rem; color: #4A90E2; font-weight: bold;">+</div>
+            <div style="text-align: center;">
+              <img src="media/method/st_im.png" alt="Input Image" style="max-width: 200px; height: auto; border-radius: 8px; border: 2px solid #4A90E2;">
+              <p style="font-size: 0.9rem; color: #666; margin: 0.5rem 0 0;">Input Image</p>
+            </div>
+          </div>
+          
+          <!-- Arrow -->
+          <div style="font-size: 1.5rem; color: #4A90E2; font-weight: bold; margin: 0 0.5rem;">→</div>
+          
+          <!-- System 2 Label -->
+          <div style="background: #cea35e; color: white; padding: 2rem 1.5rem; border-radius: 20px; font-weight: 500; white-space: nowrap; margin: 0 0.5rem; display: flex; align-items: center; justify-content: center; min-height: 120px;">
+            System 2
+          </div>
+          
+          <!-- Arrow -->
+          <div style="font-size: 1.5rem; color: #cea35e; font-weight: bold; margin: 0 0.5rem;">→</div>
+          
+          <!-- Videos from System 2 -->
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; min-width: 200px;">
+            <div style="text-align: center;">
+              <video src="media/method/flow2.mp4" autoplay loop muted style="width: 100%; max-width: 200px; height: auto; border-radius: 6px; border: 2px solid #cea35e;"></video>
+              <p style="font-size: 0.9rem; color: #666; margin: 0.5rem 0 0;">Pixel Motion Prediction</p>
+            </div>
+            <div style="text-align: center;">
+              <video src="media/method/arrow2.mp4" autoplay loop muted style="width: 100%; max-width: 200px; height: auto; border-radius: 6px; border: 2px solid #cea35e;"></video>
+              <p style="font-size: 0.9rem; color: #666; margin: 0.5rem 0 0;">Pixel Motion Visualization</p>
+            </div>
+          </div>
+          
+          <!-- Arrow -->
+          <div style="font-size: 1.5rem; color: #cea35e; font-weight: bold; margin: 0 0.5rem;">→</div>
+          
+          <!-- System 1 Label -->
+          <div style="background: #97cdae; color: white; padding: 2rem 1.5rem; border-radius: 20px; font-weight: 500; white-space: nowrap; margin: 0 0.5rem; display: flex; align-items: center; justify-content: center; min-height: 120px;">
+            System 1
+          </div>
+          
+          <!-- Arrow -->
+          <div style="font-size: 1.5rem; color: #2ecc71; font-weight: bold; margin: 0 0.5rem;">→</div>
+          
+          <!-- Final Output -->
+          <div style="text-align: center; min-width: 220px;">
+            <video src="media/mw_synth/door/vid_8.webm" autoplay loop muted style="width: 100%; max-width: 200px; height: auto; border-radius: 8px; border: 2px solid #2ecc71;"></video>
+            <p style="font-size: 0.9rem; color: #666; margin: 0.5rem 0 0;">Robot Execution</p>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div style="margin: 10px 40px;">
-    <h2>Real World Environment Videos</h2>
-  </div>
-  <div class="video-grid" id="videoHeader">
-      <video src="media/rw_videos/vid01.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid02.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid03.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid04.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid10.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid09.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid07.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid08.webm" autoplay loop muted></video>
-      <video src="media/rw_videos/vid06.webm" autoplay loop muted></video>
-  </div>
-  <div class="video-caption">
-    <p>NOTE: Above videos from our <strong>real world environment</strong> are run at 3x speed for visualization purposes.</p>
+  <div style="text-align: center; margin: 2rem 0;">
+    <a href="videos.html" style="display: inline-block; background-color: #4A90E2; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: background-color 0.3s;">
+      View Video Demonstrations
+    </a>
   </div>
 
-  <style>
-    .video-grid-small {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 10px;
-      padding: 10px;
-    }
-    .video-grid-small video {
-      width: 100%;
-      height: auto;
-    }
-  </style>
-  <div style="margin: 10px 40px;">
-    <h2>Meta-World Simulated Environment</h2>
-  </div>
-  <div class="video-grid-small" id="videoHeader">
-    <video src="media/mw_synth/door/vid_6.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_7.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_8.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_9.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_1.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_2.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_3.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_4.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/door/vid_5.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/faucet/vid_1.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/faucet/vid_2.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/faucet/vid_3.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/faucet/vid_4.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/faucet/vid_5.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_1.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_2.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_3.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_4.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_5.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_6.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_7.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_8.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt1/vid_9.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt2/vid_1.webm" autoplay loop muted></video>    
-    <video src="media/mw_synth/bt2/vid_2.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt2/vid_3.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt2/vid_4.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt2/vid_5.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt2/vid_6.webm" autoplay loop muted></video>
-    <video src="media/mw_synth/bt2/vid_7.webm" autoplay loop muted></video>
-  </div>
-<div class="video-caption">
-  <p>NOTE: Above videos from the Meta-World simulated environment are run at 3x speed for visualization purposes.</p>
-</div>
 </body>
 </html>
