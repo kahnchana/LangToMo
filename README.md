@@ -1,4 +1,4 @@
-# LangToMo
+# [WIP] LangToMo
 
 
 ## Installation
