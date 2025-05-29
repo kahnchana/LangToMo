@@ -15,7 +15,16 @@ def as_gif(images, path="temp.gif", duration=100):
 
 
 class TripletFrameDataset(Dataset):
-    def __init__(self, root_dir, k=5, image_size=(128, 128), custom_transform=None, get_vis=False, get_caption=False):
+    def __init__(
+        self,
+        root_dir,
+        k=5,
+        image_size=(128, 128),
+        custom_transform=None,
+        get_vis=False,
+        get_caption=False,
+        from_dir=False,
+    ):
         self.root_dir = root_dir
         self.k = k
         self.transform = custom_transform or T.Compose(
@@ -39,9 +48,12 @@ class TripletFrameDataset(Dataset):
         self.embedding_dict = dict(np.load(f"{root_dir}/use_embeddings.npz"))
 
         # Collect all valid video dirs
-        self.video_dirs = sorted(
-            [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d)) and d.startswith("vid_")]
-        )
+        if from_dir:
+            self.video_dirs = sorted(
+                [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d)) and d.startswith("vid_")]
+            )
+        else:
+            self.video_dirs = list(self.captions.keys())
 
         # Build index of frames
         self.video_frames = {}
@@ -100,10 +112,11 @@ class TripletFrameDataset(Dataset):
 if __name__ == "__main__":
     DATA_ROOT = "/nfs/ws2/kanchana/real_world/dataset_v1"
     DATA_ROOT = "/nfs/ws2/kanchana/real_world/dataset_v1_val"
-    dataset = TripletFrameDataset(root_dir=DATA_ROOT, k=10, get_vis=True, get_caption=True)
+    DATA_ROOT = "/home/kanchana/data/human_jp_dataset/v1"
+    dataset = TripletFrameDataset(root_dir=DATA_ROOT, k=1, get_vis=True, get_caption=True, from_dir=False)
     datum = dataset[0]
 
-    train_dataset = TripletFrameDataset(root_dir=DATA_ROOT, k=10)
+    train_dataset = TripletFrameDataset(root_dir=DATA_ROOT, k=1)
     dataloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=2, shuffle=False, num_workers=0, pin_memory=True, drop_last=True
     )
