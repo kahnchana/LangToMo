@@ -1,7 +1,6 @@
 import argparse
 import dataclasses
 import os
-import random
 from functools import partial
 
 import accelerate
@@ -20,7 +19,7 @@ import wandb
 from src import inference
 from src.dataset import calvin_dataset, flow_utils, metaworld
 from src.dataset import openx_trajectory_dataset as openx_traj
-from src.dataset import realworld_dataset
+from src.dataset import realworld_dataset, realworld_dataset_v2
 from src.model import diffusion
 
 
@@ -28,6 +27,8 @@ from src.model import diffusion
 class TrainingConfig:
     train_batch_size: int = 32
     eval_batch_size: int = 32  # how many images to sample during evaluation
+    train_root: str = None
+    val_root: str = None
     num_gpu: int = 4
     port: int = 8807
     dataset: str = "calvin"
@@ -64,6 +65,8 @@ def parse_args():
     parser.add_argument("--val-sub-datasets", type=str, nargs="+", default=["bridge"], help="List of val sub-datasets")
     parser.add_argument("--train-batch-size", type=int, default=32)
     parser.add_argument("--eval-batch-size", type=int, default=32)
+    parser.add_argument("--train-root", type=str, default=None)
+    parser.add_argument("--val-root", type=str, default=None)
     parser.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
     parser.add_argument("--steps", type=int, default=300_000, dest="num_train_steps")
     parser.add_argument("--seed", type=int, default=0)
@@ -134,6 +137,38 @@ def get_dataset(config, accelerator=None):
             train_dataset = openx_traj.DatasetIterator(mixed_dataset, get_command=False)
             val_dataset = openx_traj.DatasetIterator(val_dataset, get_command=False)
 
+        elif config.sub_datasets[0] == "ucsd_pick_and_place_2frame":
+            traj_len = 2
+            stride = 3
+            data_root = "/home/kanchana/data/openx"
+            dataset_names = ["ucsd_pick_and_place_dataset_converted_externally_to_rlds"]
+            dataset_to_stride = {x: int(y // stride) for x, y in openx_traj.DS_TO_FPS.items()}
+            traj_dataset = openx_traj.OpenXTrajectoryDataset(
+                root_dir=data_root,
+                datasets=dataset_names,
+                split="train",
+                trajectory_length=traj_len,
+                traj_stride=dataset_to_stride,
+                img_size=config.image_size,
+                infinite_repeat=True,
+            )
+            train_dataset = traj_dataset.dataset_dict[dataset_names[0]]
+
+            val_ds_name = config.val_sub_datasets[0]
+            val_dataset = openx_traj.OpenXTrajectoryDataset(
+                root_dir=data_root,
+                datasets=[val_ds_name],
+                split="train",
+                trajectory_length=traj_len,
+                traj_stride=dataset_to_stride,
+                img_size=config.image_size,
+                infinite_repeat=True,
+            )
+            val_dataset = val_dataset.dataset_dict[val_ds_name]
+
+            train_dataset = openx_traj.DatasetIterator(train_dataset, get_command=False)
+            val_dataset = openx_traj.DatasetIterator(val_dataset, get_command=False)
+
         else:
             traj_len = 3 if config.prev_flow else config.num_frames + 1
             sub_datasets = config.sub_datasets
@@ -193,13 +228,32 @@ def get_dataset(config, accelerator=None):
             )
 
     elif config.dataset == "realworld":
-        train_root = "/nfs/ws2/kanchana/real_world/dataset_v1"
-        val_root = "/nfs/ws2/kanchana/real_world/dataset_v1_val"
-        dataset = realworld_dataset.TripletFrameDataset(root_dir=train_root, k=10)
+        if config.train_root is None:
+            train_root = "/nfs/ws2/kanchana/real_world/dataset_v1"
+        else:
+            train_root = config.train_root
+        if config.val_root is None:
+            val_root = "/nfs/ws2/kanchana/real_world/dataset_v1_val"
+        else:
+            val_root = config.val_root
+
+        dataset = realworld_dataset.TripletFrameDataset(root_dir=train_root, k=1)
         train_dataloader = torch.utils.data.DataLoader(
             dataset, batch_size=config.train_batch_size, shuffle=False, num_workers=config.num_gpu
         )
-        val_dataset = realworld_dataset.TripletFrameDataset(root_dir=val_root, k=10)
+        val_dataset = realworld_dataset.TripletFrameDataset(root_dir=val_root, k=10, from_dir=True)
+        val_dataloader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=config.num_gpu
+        )
+
+    elif config.dataset == "realworld_2f":
+        train_root = "/nfs/ws2/kanchana/real_world/dataset_v2"
+        val_root = "/nfs/ws2/kanchana/real_world/dataset_v2_val"
+        dataset = realworld_dataset_v2.FramePairDataset(root_dir=train_root)
+        train_dataloader = torch.utils.data.DataLoader(
+            dataset, batch_size=config.train_batch_size, shuffle=False, num_workers=config.num_gpu
+        )
+        val_dataset = realworld_dataset_v2.FramePairDataset(root_dir=val_root)
         val_dataloader = torch.utils.data.DataLoader(
             val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=config.num_gpu
         )
@@ -282,14 +336,16 @@ def generate_flow_online(config, image_condition, flow_model, flow_transform, ge
     normalized_flow_tensor = (flow_tensor + flow_dim) / (flow_dim * 2)
     if get_all_flow:
         return normalized_flow_tensor, None
-    clean_flow, prev_flow = normalized_flow_tensor[:, 1], normalized_flow_tensor[:, 0]
+    # clean_flow, prev_flow = normalized_flow_tensor[:, 0], normalized_flow_tensor[:, 0]
+    clean_flow, prev_flow = normalized_flow_tensor[:, 0], normalized_flow_tensor[:, 0]
     return clean_flow, prev_flow
 
 
 def evaluate(dataloader, model, flow_model, flow_transform, config, split="train"):
-    RUN_COUNT = min(25, len(dataloader))
+    len_ds = 30 if config.dataset == "openx" else len(dataloader)
+    RUN_COUNT = min(25, len_ds)
     if config.debug:
-        RUN_COUNT = min(3, len(dataloader))
+        RUN_COUNT = min(3, len_ds)
     count = 0
     total_loss = 0
     vis_index = np.random.choice(RUN_COUNT)
@@ -306,7 +362,7 @@ def evaluate(dataloader, model, flow_model, flow_transform, config, split="train
             vis_cond = vis_cond.repeat(1, 1, clean_flow.shape[2], 1, 1)  # repeat first image T times
             start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)
         else:
-            image_cond = image_input[:, 1]
+            image_cond = image_input[:, 0]
             start_flow = torch.randn(clean_flow.shape, device=clean_flow.device)  # random noise
             if config.prev_flow:
                 prev_flow = torch.ones_like(prev_flow) * 0.5
@@ -486,13 +542,13 @@ def train_loop(config):
             model_inputs = torch.concat([noisy_flow, image_condition], dim=1)
 
         else:
-            image_condition = image_inputs[:, 1]  # Select the second image in sequence.
-            text_condition = text_condition[:, 1:2]  # Select corresponding text condition keeping dims.
+            image_condition = image_inputs[:, 0]  # Select the second image in sequence.
+            text_condition = text_condition[:, :1]  # Select corresponding text condition keeping dims.
             noise = torch.randn(clean_flow.shape, device=clean_flow.device)
             noisy_flow = noise_scheduler.add_noise(clean_flow, noise, timesteps)
             model_inputs = [noisy_flow, image_condition]
             if config.prev_flow:
-                pick = random.random() < 0.5  # TODO: make this a hyperparameter
+                pick = True  # random.random() < 0.5  # TODO: make this a hyperparameter
                 if pick:
                     prev_flow = torch.ones_like(prev_flow) * 0.5
                 model_inputs.append(prev_flow)

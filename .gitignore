@@ -1,6 +1,8 @@
 # Project Specific
 /experiments
 /wandb
+/real_world/test_vid*
+/sym_real_world
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

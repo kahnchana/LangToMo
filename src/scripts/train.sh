@@ -145,6 +145,24 @@ python src/train_online.py \
     --debug
 
 
+# Real world fine-tune v2.
+python src/train_online.py \
+    --dataset realworld \
+    --train-batch-size 32 \
+    --eval-batch-size 4 \
+    --train-root /home/kanchana/data/human_jp_dataset/v1 \
+    --val-root /nfs/ws2/kanchana/real_world/dataset_v1_val \
+    --image-size 128 \
+    --lr 1e-5 \
+    --steps 50_000 \
+    --prev-flow \
+    --output-dir experiments/rw_004 \
+    --pretrained experiments/ox_xarm_002/model \
+    --num-gpu 4 \
+    --port 8809 \
+    --debug
+
+
 # Real world fine-tune 2-frame.
 python src/train_online.py \
     --dataset realworld_2f \
