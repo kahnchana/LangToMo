@@ -172,7 +172,7 @@ def get_dataset(config, accelerator=None):
         else:
             traj_len = 3 if config.prev_flow else config.num_frames + 1
             sub_datasets = config.sub_datasets
-            data_root = "/home/kanchana/data/openx"
+            data_root = config.train_root
             stride = 0.5
             dataset_to_stride = {x: int(y // stride) for x, y in openx_traj.DS_TO_FPS.items()}
             traj_dataset = openx_traj.OpenXTrajectoryDataset(
@@ -592,7 +592,12 @@ def train_loop(config):
         # Save the model.
         if accelerator.is_main_process:
             if (step + 1) % config.save_interval_steps == 0 or step == config.num_train_steps:
-                model.module.save_pretrained(f"{config.output_dir}/model")
+                if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
+                    # Unwrap the model if it's wrapped
+                    unwrapped_model = model.module
+                else:
+                    unwrapped_model = model
+                unwrapped_model.save_pretrained(f"{config.output_dir}/model")
                 accelerator.save_state(f"{config.output_dir}/train_state")
                 with open(f"{config.output_dir}/last_step.txt", "w") as f:
                     f.write(str(step))

@@ -9,6 +9,7 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvi
 pip install -U diffusers accelerate transformers
 pip install einops matplotlib wandb
 pip install dm-reverb[tensorflow] tensorflow-datasets rlds
+pip install "pydantic>=2.0" --upgrade
 ```
 
 
