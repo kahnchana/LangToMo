@@ -109,9 +109,7 @@ def adaptive_unnormalize(flow, sf_x=20, sf_y=20):
     return flow_orig
 
 
-def generate_flow_online(
-    image_pair, flow_model, flow_transform, normalize=(12, 8), third_channel=False
-):
+def generate_flow_online(image_pair, flow_model, flow_transform, normalize=(12, 8), third_channel=False):
     flow_input, _ = flow_transform(image_pair, image_pair)
     start_im = flow_input[:-1]
     end_im = flow_input[1:]
@@ -121,9 +119,7 @@ def generate_flow_online(
     flow_orig = flow_tensor
 
     if normalize is not None and not isinstance(normalize, bool):
-        flow_tensor = adaptive_normalize(
-            flow_tensor, sf_x=normalize[0], sf_y=normalize[1]
-        )
+        flow_tensor = adaptive_normalize(flow_tensor, sf_x=normalize[0], sf_y=normalize[1])
 
     if third_channel:
         channel_0 = flow_tensor[:, 0:1, :, :]
@@ -143,9 +139,7 @@ def compare_pair(vector_a, vector_b):
 
 # Load the SDXL VAE & RAFT models.
 vae = AutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
-flow_model = optical_flow.raft_large(
-    weights=optical_flow.Raft_Large_Weights.DEFAULT, progress=False
-).eval()
+flow_model = optical_flow.raft_large(weights=optical_flow.Raft_Large_Weights.DEFAULT, progress=False).eval()
 flow_transform = optical_flow.Raft_Large_Weights.DEFAULT.transforms()
 
 # Load Video.
