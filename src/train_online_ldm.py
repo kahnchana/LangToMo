@@ -10,9 +10,6 @@ import accelerate
 import datasets
 import diffusers
 import einops
-import numpy as np
-import PIL
-import requests
 import tensorflow as tf
 import torch
 import torch.nn as nn
@@ -31,7 +28,6 @@ from diffusers import (
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate
-from diffusers.utils.constants import DIFFUSERS_REQUEST_TIMEOUT
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo, upload_folder
@@ -309,18 +305,6 @@ def generate_flow_online(config, image_condition, flow_model, flow_transform, no
     clean_flow, prev_flow = flow_tensor[:, 1], flow_tensor[:, 0]
 
     return clean_flow, prev_flow, flow_orig
-
-
-def convert_to_np(image, resolution):
-    image = image.convert("RGB").resize((resolution, resolution))
-    return np.array(image).transpose(2, 0, 1)
-
-
-def download_image(url):
-    image = PIL.Image.open(requests.get(url, stream=True, timeout=DIFFUSERS_REQUEST_TIMEOUT).raw)
-    image = PIL.ImageOps.exif_transpose(image)
-    image = image.convert("RGB")
-    return image
 
 
 def main():
