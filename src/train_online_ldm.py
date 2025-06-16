@@ -4,12 +4,14 @@ import argparse
 import logging
 import os
 import shutil
+from contextlib import nullcontext
 from pathlib import Path
 
 import accelerate
 import datasets
 import diffusers
 import einops
+import numpy as np
 import tensorflow as tf
 import torch
 import torch.nn as nn
@@ -27,15 +29,17 @@ from diffusers import (
 )
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-from diffusers.utils import check_min_version, deprecate
+from diffusers.utils import check_min_version, deprecate, make_image_grid
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo, upload_folder
 from packaging import version
+from PIL import Image
 from torchvision.models import optical_flow
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
+import wandb
 from src.dataset import flow_utils
 from src.dataset import openx_trajectory_dataset as openx_traj
 
@@ -43,11 +47,6 @@ from src.dataset import openx_trajectory_dataset as openx_traj
 check_min_version("0.34.0.dev0")
 
 logger = get_logger(__name__, log_level="INFO")
-
-DATASET_NAME_MAPPING = {
-    "fusing/instructpix2pix-1000-samples": ("input_image", "edit_prompt", "edited_image"),
-}
-WANDB_TABLE_COL_NAMES = ["original_image", "edited_image", "edit_prompt"]
 
 
 def parse_args():
@@ -59,8 +58,9 @@ def parse_args():
     parser.add_argument("--train_data_dir", type=str, default=None)
     parser.add_argument("--sub_datasets", type=str, nargs="+", default=["bridge"], help="List of sub-datasets")
     parser.add_argument("--val_sub_datasets", type=str, nargs="+", default=["bridge"], help="List of val sub-datasets")
-    parser.add_argument("--validation_epochs", type=int, default=1)
     parser.add_argument("--num_train_steps", type=int, default=300_000, help="Total steps (overrides num_train_epochs)")
+    parser.add_argument("--validation_steps", type=int, default=500, help="Val every every X steps.")
+    parser.add_argument("--checkpointing_steps", type=int, default=500, help="Save checkpoint every X steps.")
     parser.add_argument("--max_train_samples", type=int, default=None, help="for debugging")
     parser.add_argument("--output_dir", type=str, default="ldm-test")
     parser.add_argument("--cache_dir", type=str, default=None, help="Dir for downloaded models / datasets.")
@@ -95,11 +95,10 @@ def parse_args():
     parser.add_argument("--mixed_precision", type=str, default=None, choices=["no", "fp16", "bf16"])
     parser.add_argument("--report_to", type=str, default="wandb")
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
-    parser.add_argument("--validation_steps", type=int, default=500, help="Val every every X steps.")
-    parser.add_argument("--checkpointing_steps", type=int, default=500, help="Save checkpoint every X steps.")
     parser.add_argument("--checkpoints_total_limit", type=int, default=None, help="Max checkpoints to store.")
     parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="Can set to `latest`")
     parser.add_argument("--enable_xformers_memory_efficient_attention", action="store_true")
+    parser.add_argument("--debug", action="store_true")
 
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -117,56 +116,88 @@ def parse_args():
     return args
 
 
-# def log_validation(dataloader, pipeline, args, accelerator, generator, flow_model, flow_transform):
-#     RUN_COUNT = 25
-#     count = 0
-#     total_loss = 0
-#     vis_index = np.random.choice(RUN_COUNT)
-#     vis_pair = None
-#     edited_images = []
+def log_validation(
+    config, dataloader, pipeline, args, accelerator, generator, flow_model, flow_transform, split="train"
+):
+    if config.debug:
+        RUN_COUNT = 3
+    else:
+        RUN_COUNT = 25
 
-#     pipeline = pipeline.to(accelerator.device)
-#     pipeline.set_progress_bar_config(disable=True)
+    count = 0
+    total_loss = 0
+    vis_index = np.random.choice(RUN_COUNT)
+    vis_pair = None
 
-#     if torch.backends.mps.is_available():
-#         autocast_ctx = nullcontext()
-#     else:
-#         autocast_ctx = torch.autocast(accelerator.device.type)
+    accelerator.print(f"Rank {accelerator.process_index}: Starting log_validation")
+    pipeline = pipeline.to(accelerator.device)
+    pipeline.set_progress_bar_config(disable=True)
 
-#     with autocast_ctx:
-#         for idx, batch in tqdm(enumerate(dataloader), total=RUN_COUNT):
-#             image_inputs = batch["observation"]
-#             image_condition = image_inputs[:, 1]
-#             clean_flow, prev_flow, vis_flow = generate_flow_online(
-#                 args, batch["observation"], flow_model, flow_transform, normalize=(20, 20), third_channel=True
-#             )
-#             gen_flow = pipeline(
-#                 args.validation_prompt,
-#                 image=image_condition,
-#                 num_inference_steps=20,
-#                 image_guidance_scale=1.5,
-#                 guidance_scale=7,
-#                 generator=generator,
-#             ).images[0]
+    if torch.backends.mps.is_available():
+        autocast_ctx = nullcontext()
+    else:
+        autocast_ctx = torch.autocast(accelerator.device.type)
 
-#         for _ in range(args.num_validation_images):
-#             edited_images.append(
-#                 pipeline(
-#                     args.validation_prompt,
-#                     image=original_image,
-#                     num_inference_steps=20,
-#                     image_guidance_scale=1.5,
-#                     guidance_scale=7,
-#                     generator=generator,
-#                 ).images[0]
-#             )
+    with autocast_ctx:
+        for idx, batch in tqdm(enumerate(dataloader), total=RUN_COUNT):
+            image_inputs = batch["observation"]
+            clean_flow, prev_flow, vis_flow = generate_flow_online(
+                args, batch["observation"], flow_model, flow_transform, third_channel=True
+            )
+            text_embeds = pipeline.text_encoder(batch["input_ids"])[0]
 
-#     for tracker in accelerator.trackers:
-#         if tracker.name == "wandb":
-#             wandb_table = wandb.Table(columns=WANDB_TABLE_COL_NAMES)
-#             for edited_image in edited_images:
-#                 wandb_table.add_data(wandb.Image(original_image), wandb.Image(edited_image), args.validation_prompt)
-#             tracker.log({"validation": wandb_table})
+            generated_flow = pipeline(
+                image=image_inputs[:, 1],
+                prompt_embeds=text_embeds,
+                num_inference_steps=20,
+                image_guidance_scale=1.5,
+                guidance_scale=7,
+                generator=generator,
+                output_type="pt",
+            ).images
+
+            with torch.no_grad():
+                loss = torch.mean((generated_flow - clean_flow) ** 2)
+
+            total_loss += loss.item()
+            count += 1
+
+            if idx == vis_index:
+                vis_pair = (image_inputs, generated_flow, vis_flow)
+
+            if idx >= RUN_COUNT:
+                break
+
+    vis_count = 4
+    image_cond, generated_flow, clean_flow = vis_pair
+    vis_images = image_cond[:vis_count, 1]
+    vis_images = einops.rearrange((vis_images.cpu().numpy() * 255).astype(np.uint8), "b c h w -> b h w c")
+
+    vis_pred = flow_utils.adaptive_unnormalize(generated_flow[:vis_count].cpu(), sf_x=32, sf_y=32)
+    vis_pred = einops.rearrange(vis_pred.cpu().numpy(), "b c h w -> b h w c")[:, :, :, :2]
+
+    vis_gt = einops.rearrange(clean_flow[:vis_count, 1].cpu().numpy(), "b c h w -> b h w c")
+
+    vis_gt_flow = [
+        flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_gt[i], step=8, title="Ground Truth Optical Flow")
+        for i in range(vis_count)
+    ]
+    vis_pred_flow = [
+        flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_pred[i], step=8, title="Predicted Optical Flow")
+        for i in range(vis_count)
+    ]
+
+    vis_joint = [make_image_grid([x, y], rows=1, cols=2) for x, y in zip(vis_gt_flow, vis_pred_flow)]
+
+    eval_log_dict = {f"{split}/images": [wandb.Image(x) for x in vis_joint], f"{split}_loss": total_loss}
+
+    if config.debug:
+        vis_image_pair = image_cond[:vis_count, 1:].cpu().numpy()
+        vis_image_pair = einops.rearrange((vis_image_pair * 255).astype(np.uint8), "b t c h w -> b h (t w) c")
+        vis_image_pair = [Image.fromarray(x) for x in vis_image_pair]
+        eval_log_dict[f"{split}/image_vis"] = [wandb.Image(x) for x in vis_image_pair]
+
+    return eval_log_dict
 
 
 def get_dataset(config, accelerator=None, tokenize_func=None):
@@ -280,7 +311,7 @@ def get_dataset(config, accelerator=None, tokenize_func=None):
     return train_dataloader, val_dataloader
 
 
-def generate_flow_online(config, image_condition, flow_model, flow_transform, normalize=(12, 8), third_channel=True):
+def generate_flow_online(config, image_condition, flow_model, flow_transform, normalize=(32, 32), third_channel=True):
     flow_input, _ = flow_transform(image_condition, image_condition)
     start_im = einops.rearrange(flow_input[:, :-1], "b t c h w -> (b t) c h w")
     end_im = einops.rearrange(flow_input[:, 1:], "b t c h w -> (b t) c h w")
@@ -309,6 +340,10 @@ def generate_flow_online(config, image_condition, flow_model, flow_transform, no
 
 def main():
     args = parse_args()
+
+    if args.debug:
+        args.validation_steps = 5
+
     if args.report_to == "wandb" and args.hub_token is not None:
         raise ValueError(
             "You cannot use both --report_to=wandb and --hub_token due to a security risk of exposing your token."
@@ -618,7 +653,7 @@ def main():
 
         # Generate flow online.
         clean_flow, prev_flow, vis_flow = generate_flow_online(
-            args, batch["observation"], flow_model, flow_transform, normalize=(20, 20), third_channel=True
+            args, batch["observation"], flow_model, flow_transform, third_channel=True
         )
 
         with accelerator.accumulate(unet):
@@ -700,43 +735,68 @@ def main():
             if args.use_ema:
                 ema_unet.step(unet.parameters())
             progress_bar.update(1)
-            wandb_logs = {"train_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
-            accelerator.log(wandb_logs, step=global_step)
+            train_log_data = {
+                "step_loss": loss.detach().item(),
+                "lr": lr_scheduler.get_last_lr()[0],
+                "step": global_step,
+            }
             global_step += 1
             train_loss = 0.0
 
-            # if global_step % args.validation_steps == 0:
-            #     accelerator.wait_for_everyone()
-            #     if accelerator.is_main_process:
+            eval_log_data = {}
+            if global_step % args.validation_steps == 0:
+                accelerator.wait_for_everyone()
+                if accelerator.is_main_process:
 
-            #         if args.use_ema:
-            #             # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-            #             ema_unet.store(unet.parameters())
-            #             ema_unet.copy_to(unet.parameters())
-            #         # The models need unwrapping because for compatibility in distributed training mode.
-            #         pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(
-            #             args.pretrained_model_name_or_path,
-            #             unet=unwrap_model(unet),
-            #             text_encoder=unwrap_model(text_encoder),
-            #             vae=unwrap_model(vae),
-            #             revision=args.revision,
-            #             variant=args.variant,
-            #             torch_dtype=weight_dtype,
-            #         )
+                    if args.use_ema:
+                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                        ema_unet.store(unet.parameters())
+                        ema_unet.copy_to(unet.parameters())
+                    # The models need unwrapping because for compatibility in distributed training mode.
+                    pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(
+                        args.pretrained_model_name_or_path,
+                        unet=unwrap_model(unet),
+                        text_encoder=unwrap_model(text_encoder),
+                        vae=unwrap_model(vae),
+                        revision=args.revision,
+                        variant=args.variant,
+                        torch_dtype=weight_dtype,
+                        safety_checker=None,
+                        requires_safety_checker=False,
+                    )
 
-            #         log_validation(
-            #             pipeline,
-            #             args,
-            #             accelerator,
-            #             generator,
-            #         )
+                    train_logs = log_validation(
+                        args,
+                        train_dataloader,
+                        pipeline,
+                        args,
+                        accelerator,
+                        generator,
+                        flow_model,
+                        flow_transform,
+                        split="train",
+                    )
 
-            #         if args.use_ema:
-            #             # Switch back to the original UNet parameters.
-            #             ema_unet.restore(unet.parameters())
+                    val_logs = log_validation(
+                        args,
+                        val_dataloader,
+                        pipeline,
+                        args,
+                        accelerator,
+                        generator,
+                        flow_model,
+                        flow_transform,
+                        split="val",
+                    )
 
-            #         del pipeline
-            #         torch.cuda.empty_cache()
+                    eval_log_data = {**train_logs, **val_logs}
+
+                    if args.use_ema:
+                        # Switch back to the original UNet parameters.
+                        ema_unet.restore(unet.parameters())
+
+                    del pipeline
+                    torch.cuda.empty_cache()
 
             if global_step % args.checkpointing_steps == 0:
                 if accelerator.is_main_process:
@@ -763,6 +823,8 @@ def main():
                     save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                     accelerator.save_state(save_path)
                     logger.info(f"Saved state to {save_path}")
+
+            accelerator.log({**train_log_data, **eval_log_data}, step=global_step)
 
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
         progress_bar.set_postfix(**logs)
