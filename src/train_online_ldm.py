@@ -129,7 +129,6 @@ def log_validation(
     vis_index = np.random.choice(RUN_COUNT)
     vis_pair = None
 
-    accelerator.print(f"Rank {accelerator.process_index}: Starting log_validation")
     pipeline = pipeline.to(accelerator.device)
     pipeline.set_progress_bar_config(disable=True)
 
@@ -746,54 +745,53 @@ def main():
             eval_log_data = {}
             if global_step % args.validation_steps == 0:
                 accelerator.wait_for_everyone()
-                if accelerator.is_main_process:
 
-                    if args.use_ema:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_unet.store(unet.parameters())
-                        ema_unet.copy_to(unet.parameters())
-                    # The models need unwrapping because for compatibility in distributed training mode.
-                    pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(
-                        args.pretrained_model_name_or_path,
-                        unet=unwrap_model(unet),
-                        text_encoder=unwrap_model(text_encoder),
-                        vae=unwrap_model(vae),
-                        revision=args.revision,
-                        variant=args.variant,
-                        torch_dtype=weight_dtype,
-                        safety_checker=None,
-                        requires_safety_checker=False,
-                    )
+                if args.use_ema:
+                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                    ema_unet.store(unet.parameters())
+                    ema_unet.copy_to(unet.parameters())
+                # The models need unwrapping because for compatibility in distributed training mode.
+                pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(
+                    args.pretrained_model_name_or_path,
+                    unet=unwrap_model(unet),
+                    text_encoder=unwrap_model(text_encoder),
+                    vae=unwrap_model(vae),
+                    revision=args.revision,
+                    variant=args.variant,
+                    torch_dtype=weight_dtype,
+                    safety_checker=None,
+                    requires_safety_checker=False,
+                )
 
-                    train_logs = log_validation(
-                        args,
-                        train_dataloader,
-                        pipeline,
-                        args,
-                        accelerator,
-                        generator,
-                        flow_model,
-                        flow_transform,
-                        split="train",
-                    )
+                train_logs = log_validation(
+                    args,
+                    train_dataloader,
+                    pipeline,
+                    args,
+                    accelerator,
+                    generator,
+                    flow_model,
+                    flow_transform,
+                    split="train",
+                )
 
-                    val_logs = log_validation(
-                        args,
-                        val_dataloader,
-                        pipeline,
-                        args,
-                        accelerator,
-                        generator,
-                        flow_model,
-                        flow_transform,
-                        split="val",
-                    )
+                val_logs = log_validation(
+                    args,
+                    val_dataloader,
+                    pipeline,
+                    args,
+                    accelerator,
+                    generator,
+                    flow_model,
+                    flow_transform,
+                    split="val",
+                )
 
-                    eval_log_data = {**train_logs, **val_logs}
+                eval_log_data = {**train_logs, **val_logs}
 
-                    if args.use_ema:
-                        # Switch back to the original UNet parameters.
-                        ema_unet.restore(unet.parameters())
+                if args.use_ema:
+                    # Switch back to the original UNet parameters.
+                    ema_unet.restore(unet.parameters())
 
                     del pipeline
                     torch.cuda.empty_cache()
@@ -860,12 +858,6 @@ def main():
                 ignore_patterns=["step_*", "epoch_*"],
             )
 
-        # log_validation(
-        #     pipeline,
-        #     args,
-        #     accelerator,
-        #     generator,
-        # )
     accelerator.end_training()
 
 
