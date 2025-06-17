@@ -12,6 +12,19 @@ pip install dm-reverb[tensorflow] tensorflow-datasets rlds
 pip install "pydantic>=2.0" --upgrade
 ```
 
+## Installation - LDM (Diffusers Code Base)
+
+```
+git clone https://github.com/huggingface/diffusers
+cd diffusers
+pip install -e .
+pip install accelerate transformers datasets
+pip install einops matplotlib wandb
+pip install "pydantic>=2.0" --upgrade
+pip install dm-reverb[tensorflow] tensorflow-datasets rlds
+pip install xformers
+```
+
 
 ## Sythetic Setup - CALVIN
 This section explains using CALVIN dataset to train our model.
