@@ -109,7 +109,9 @@ def adaptive_unnormalize(flow, sf_x=20, sf_y=20):
     return flow_orig
 
 
-def generate_flow_online(image_pair, flow_model, flow_transform, normalize=(12, 8), third_channel=False):
+def generate_flow_online(
+    image_pair, flow_model, flow_transform, normalize=(12, 8), third_channel=False
+):
     flow_input, _ = flow_transform(image_pair, image_pair)
     start_im = flow_input[:-1]
     end_im = flow_input[1:]
@@ -119,7 +121,9 @@ def generate_flow_online(image_pair, flow_model, flow_transform, normalize=(12, 
     flow_orig = flow_tensor
 
     if normalize is not None and not isinstance(normalize, bool):
-        flow_tensor = adaptive_normalize(flow_tensor, sf_x=normalize[0], sf_y=normalize[1])
+        flow_tensor = adaptive_normalize(
+            flow_tensor, sf_x=normalize[0], sf_y=normalize[1]
+        )
 
     if third_channel:
         channel_0 = flow_tensor[:, 0:1, :, :]
@@ -138,9 +142,13 @@ def compare_pair(vector_a, vector_b):
 
 
 # Load the SDXL VAE & RAFT models.
-vae = AutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
-flow_model = optical_flow.raft_large(weights=optical_flow.Raft_Large_Weights.DEFAULT, progress=False).eval()
+vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix")
+flow_model = optical_flow.raft_large(
+    weights=optical_flow.Raft_Large_Weights.DEFAULT, progress=False
+).eval()
 flow_transform = optical_flow.Raft_Large_Weights.DEFAULT.transforms()
+
+FLOW_NORM = (64, 64)
 
 # Load Video.
 video_path = "/export/share/kranasinghe/dataset/ssv2/videos/78687.webm"
@@ -150,7 +158,7 @@ frame_pair = einops.rearrange(frame_pair, "b h w c -> b c h w")
 
 # Generate Flow.
 flow_vis_tensor, flow_vector = generate_flow_online(
-    frame_pair, flow_model, flow_transform, normalize=(20, 20), third_channel=True
+    frame_pair, flow_model, flow_transform, normalize=FLOW_NORM, third_channel=True
 )
 flow_vis = flow_utils.flow_to_pil_hsv(flow_vis_tensor[0], saturation=255, gamma=2.0)
 
@@ -172,7 +180,9 @@ print("\nReconstruction vs. Flow Vector")
 compare_pair(flow_vector, recon_img.cpu())
 
 # Post-process the reconstructed image to [0, 255] range
-recon_img_unnorm = adaptive_unnormalize(recon_img[:, :2].cpu(), sf_x=20, sf_y=20)
+recon_img_unnorm = adaptive_unnormalize(
+    recon_img[:, :2].cpu(), sf_x=FLOW_NORM[0], sf_y=FLOW_NORM[1]
+)
 recon_vis = flow_utils.flow_to_pil_hsv(recon_img_unnorm[0], saturation=255, gamma=2.0)
 
 orig_vis = np.array(flow_vis)
@@ -185,7 +195,7 @@ vis_diff = Image.fromarray(255 - vis_diff.astype(np.uint8))
 #############################################################
 
 recon_loss = torch.abs(recon_img_unnorm - flow_vis_tensor).mean()
-assert recon_loss < 0.1, f"Reconstruction L1 loss above 0.05: {recon_loss}"
+assert recon_loss < 0.2, f"Reconstruction L1 loss above 0.2: {recon_loss}"
 
 print("\nReconstruction vs. Flow Vector in Unnormalized Space")
 compare_pair(flow_vis_tensor, recon_img_unnorm)

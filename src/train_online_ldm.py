@@ -21,12 +21,7 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    StableDiffusionInstructPix2PixPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionInstructPix2PixPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, make_image_grid
@@ -162,7 +157,7 @@ def log_validation(
             count += 1
 
             if idx == vis_index:
-                vis_pair = (image_inputs, generated_flow, vis_flow)
+                vis_pair = (image_inputs, generated_flow, clean_flow)
 
             if idx >= RUN_COUNT:
                 break
@@ -175,7 +170,9 @@ def log_validation(
     vis_pred = flow_utils.adaptive_unnormalize(generated_flow[:vis_count].cpu(), sf_x=32, sf_y=32)
     vis_pred = einops.rearrange(vis_pred.cpu().numpy(), "b c h w -> b h w c")[:, :, :, :2]
 
-    vis_gt = einops.rearrange(clean_flow[:vis_count, 1].cpu().numpy(), "b c h w -> b h w c")
+    # vis_gt = einops.rearrange(clean_flow[:vis_count, 1].cpu().numpy(), "b c h w -> b h w c")
+    vis_gt = flow_utils.adaptive_unnormalize(clean_flow[:vis_count].cpu(), sf_x=32, sf_y=32)
+    vis_gt = einops.rearrange(vis_gt.cpu().numpy(), "b c h w -> b h w c")[:, :, :, :2]
 
     vis_gt_flow = [
         flow_utils.visualize_flow_vectors_as_PIL(vis_images[i], vis_gt[i], step=8, title="Ground Truth Optical Flow")
@@ -411,9 +408,7 @@ def main():
     text_encoder = CLIPTextModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, variant=args.variant
     )
-    vae = AutoencoderKL.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant
-    )
+    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix")
     unet = UNet2DConditionModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="unet", revision=args.non_ema_revision
     )
